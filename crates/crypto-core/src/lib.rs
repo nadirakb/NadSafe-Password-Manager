@@ -2,6 +2,7 @@ pub mod enc_string;
 pub mod error;
 pub mod kdf;
 pub mod keys;
+pub mod password_gen;
 pub mod recovery;
 pub mod totp;
 

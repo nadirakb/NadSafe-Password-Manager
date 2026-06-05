@@ -5,6 +5,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { VaultPage } from "./pages/VaultPage";
 import { UnlockPage } from "./pages/UnlockPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { RecoveryPage } from "./pages/RecoveryPhrasePage";
 import { Layout } from "./components/Layout";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -20,6 +21,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/unlock" element={<UnlockPage />} />
+      <Route path="/recover" element={<RecoveryPage />} />
       <Route
         path="/"
         element={
