@@ -1,0 +1,27 @@
+[package]
+name = "nadsafe-desktop"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "NadSafe desktop client (Tauri 2)"
+
+[lib]
+name = "nadsafe_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "nadsafe-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+tauri.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+nadsafe-crypto-core = { path = "../../../crates/crypto-core" }

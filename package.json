@@ -1,0 +1,14 @@
+{
+  "name": "nadsafe",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "clients/web"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=clients/web",
+    "build:web": "npm run build --workspace=clients/web",
+    "test:crypto": "cargo test -p nadsafe-crypto-core",
+    "check": "cargo check && npm run build:web"
+  }
+}
