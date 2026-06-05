@@ -1,15 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
-import { setSessionUserKey } from "../stores/session";
+import { setSessionUserKey, setSessionRsaKey } from "../stores/session";
 import { initApiClient } from "../lib/api/client";
 import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
 import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
+import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
+import { symKeyFromBytes } from "../lib/crypto/types";
 import styles from "./Auth.module.css";
 
 export function UnlockPage() {
   const navigate = useNavigate();
-  const { user, serverUrl, refreshToken: storedRefreshToken, encryptedUserKey, unlock, logout } = useAuthStore();
+  const { user, serverUrl, refreshToken: storedRefreshToken, encryptedUserKey, encryptedPrivateKey, unlock, logout } = useAuthStore();
 
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -41,6 +43,18 @@ export function UnlockPage() {
       // Unwrap user key — MAC mismatch = wrong master password
       const userKey = await unwrapUserKey(encryptedUserKey, { encKey, macKey });
       setSessionUserKey(userKey);
+
+      // Restore RSA private key for org operations
+      if (encryptedPrivateKey && !encryptedPrivateKey.startsWith("2.placeholder")) {
+        try {
+          const sym = symKeyFromBytes(userKey.encKey);
+          const rsaKey = await decryptRsaPrivateKey(encryptedPrivateKey, sym);
+          setSessionRsaKey(rsaKey);
+        } catch {
+          // non-fatal
+        }
+      }
+
       unlock(tokenRes.access_token);
       navigate("/vault");
     } catch (err) {

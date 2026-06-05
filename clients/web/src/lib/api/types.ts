@@ -14,9 +14,10 @@ export interface TokenResponse {
   refresh_token: string;
   scope: string;
   /** Encrypted user key (EncString). Returned on password login; absent on token refresh. */
-  Key?: string;  // Vaultwarden 1.35 and earlier
-  key?: string;  // Vaultwarden 1.36 lowercase
-  PrivateKey?: string;
+  Key?: string;         // Vaultwarden 1.35 and earlier (PascalCase)
+  key?: string;         // Vaultwarden 1.36+ (lowercase)
+  PrivateKey?: string;  // encrypted RSA private key (PascalCase)
+  privateKey?: string;  // Vaultwarden 1.36+ (lowercase)
   kdf?: number;
   kdfIterations?: number;
   kdfMemory?: number;

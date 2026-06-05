@@ -21,13 +21,19 @@ interface AuthState {
   serverUrl: string;
   accessToken: string | null;
   refreshToken: string | null;
-  // The server-side encrypted user key (EncString).
-  // Persisted so unlock can unwrap the vault key without a fresh login.
+  /** Encrypted user key (EncString). Persisted to survive page reload. */
   encryptedUserKey: string | null;
+  /** Encrypted RSA private key (EncString). Needed for org key operations. */
+  encryptedPrivateKey: string | null;
 
-  // Actions
   setServerUrl: (url: string) => void;
-  login: (user: AuthUser, accessToken: string, refreshToken: string, encryptedUserKey: string) => void;
+  login: (
+    user: AuthUser,
+    accessToken: string,
+    refreshToken: string,
+    encryptedUserKey: string,
+    encryptedPrivateKey?: string | null,
+  ) => void;
   lock: () => void;
   unlock: (accessToken: string) => void;
   logout: () => void;
@@ -43,11 +49,20 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       refreshToken: null,
       encryptedUserKey: null,
+      encryptedPrivateKey: null,
 
       setServerUrl: (url) => set({ serverUrl: url.replace(/\/$/, "") }),
 
-      login: (user, accessToken, refreshToken, encryptedUserKey) =>
-        set({ isAuthenticated: true, isLocked: false, user, accessToken, refreshToken, encryptedUserKey }),
+      login: (user, accessToken, refreshToken, encryptedUserKey, encryptedPrivateKey) =>
+        set({
+          isAuthenticated: true,
+          isLocked: false,
+          user,
+          accessToken,
+          refreshToken,
+          encryptedUserKey,
+          encryptedPrivateKey: encryptedPrivateKey ?? null,
+        }),
 
       lock: () => set({ isLocked: true, accessToken: null }),
 
@@ -60,18 +75,20 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           accessToken: null,
           refreshToken: null,
+          encryptedUserKey: null,
+          encryptedPrivateKey: null,
         }),
     }),
     {
       name: "nadsafe-auth",
       storage: createJSONStorage(() => sessionStorage),
-      // Don't persist access tokens across page reloads — re-auth required
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
         user: s.user,
         serverUrl: s.serverUrl,
         refreshToken: s.refreshToken,
         encryptedUserKey: s.encryptedUserKey,
+        encryptedPrivateKey: s.encryptedPrivateKey,
       }),
     },
   ),

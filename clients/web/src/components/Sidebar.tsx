@@ -1,15 +1,19 @@
 import { NavLink } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useVaultStore } from "../stores/vault";
+import { clearSessionKey } from "../stores/session";
 import styles from "./Sidebar.module.css";
 
 const NAV_ITEMS = [
   { to: "/vault", label: "All Items", icon: "⊞" },
+  { to: "/organizations", label: "Organizations", icon: "🏢" },
+  { to: "/import", label: "Import", icon: "📥" },
   { to: "/settings", label: "Settings", icon: "⚙" },
 ];
 
 export function Sidebar() {
-  const { user, logout } = useAuthStore();
+  const { user, lock } = useAuthStore();
+  function handleLock() { lock(); clearSessionKey(); }
   const { folders, collections } = useVaultStore();
 
   return (
@@ -68,7 +72,7 @@ export function Sidebar() {
             <span className={styles.userEmail}>{user?.email}</span>
           </div>
         </div>
-        <button className={styles.logoutBtn} onClick={logout} title="Lock vault">
+        <button className={styles.logoutBtn} onClick={handleLock} title="Lock vault">
           🔒
         </button>
       </div>

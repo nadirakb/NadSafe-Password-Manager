@@ -145,7 +145,8 @@ export function VaultPage() {
     if (!lastSynced) doSync();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const allItems = storeItems.length > 0 ? storeItems : MOCK_ITEMS;
+  // Show mocks only before first sync (UI preview). After sync: show real items or empty.
+  const allItems = storeItems.length > 0 ? storeItems : lastSynced !== null ? [] : MOCK_ITEMS;
   const filtered = allItems.filter((i) =>
     !searchQuery ||
     i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
