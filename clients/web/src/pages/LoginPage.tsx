@@ -1,46 +1,20 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import { useLogin } from "../hooks/useAuth";
 import styles from "./Auth.module.css";
 
 export function LoginPage() {
-  const navigate = useNavigate();
-  const { serverUrl, setServerUrl, login } = useAuthStore();
+  const { serverUrl } = useAuthStore();
+  const { doLogin, loading, error } = useLogin();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [server, setServer] = useState(serverUrl || "https://");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [server, setServer] = useState(serverUrl || "http://localhost:8000");
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setLoading(true);
-
-    try {
-      setServerUrl(server);
-
-      // TODO: call API — preauth to get KDF params, then derive key and authenticate
-      // For now, mock a successful login for UI development
-      await new Promise((r) => setTimeout(r, 800));
-      login(
-        {
-          id: "mock-id",
-          email,
-          name: email.split("@")[0],
-          kdfType: "argon2id",
-          kdfParams: { mCost: 65536, tCost: 3, pCost: 4 },
-        },
-        "mock-access-token",
-        "mock-refresh-token",
-      );
-      navigate("/vault");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
-      setLoading(false);
-    }
+    await doLogin(server, email, password);
   }
 
   return (
@@ -53,9 +27,7 @@ export function LoginPage() {
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.field}>
-            <label className={styles.label} htmlFor="server">
-              Server URL
-            </label>
+            <label className={styles.label} htmlFor="server">Server URL</label>
             <input
               id="server"
               type="url"
@@ -68,9 +40,7 @@ export function LoginPage() {
           </div>
 
           <div className={styles.field}>
-            <label className={styles.label} htmlFor="email">
-              Email address
-            </label>
+            <label className={styles.label} htmlFor="email">Email address</label>
             <input
               id="email"
               type="email"
@@ -84,9 +54,7 @@ export function LoginPage() {
           </div>
 
           <div className={styles.field}>
-            <label className={styles.label} htmlFor="password">
-              Master password
-            </label>
+            <label className={styles.label} htmlFor="password">Master password</label>
             <input
               id="password"
               type="password"
@@ -101,18 +69,13 @@ export function LoginPage() {
 
           {error && <p className={styles.error}>{error}</p>}
 
-          <button
-            type="submit"
-            className={styles.submitBtn}
-            disabled={loading}
-          >
+          <button type="submit" className={styles.submitBtn} disabled={loading}>
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
         <p className={styles.footer}>
-          No account?{" "}
-          <Link to="/register">Create one</Link>
+          No account? <Link to="/register">Create one</Link>
         </p>
       </div>
     </div>

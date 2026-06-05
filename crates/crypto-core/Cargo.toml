@@ -35,6 +35,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 hex-literal = "0.4"
+hex = "0.4"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

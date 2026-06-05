@@ -21,12 +21,15 @@ use crate::{
     error::CryptoError,
 };
 
-/// Stretch the 32-byte master key into a 64-byte key (enc + mac) via HKDF.
-/// Salt = email bytes, info = empty string (matches Bitwarden spec).
+/// Stretch the 32-byte master key into a 64-byte key (enc + mac) via HKDF-Expand.
+///
+/// Bitwarden skips the HKDF extract phase — the master key IS the PRK.
+/// Two separate expand calls with info="enc" and info="mac".
 pub fn stretch_master_key(master_key: &[u8; 32]) -> Result<Zeroizing<[u8; 64]>, CryptoError> {
-    let hk = Hkdf::<Sha256>::new(None, master_key);
+    // from_prk skips extract, treating master_key directly as PRK.
+    let hk = Hkdf::<Sha256>::from_prk(master_key)
+        .map_err(|e| CryptoError::Kdf(e.to_string()))?;
     let mut stretched = Zeroizing::new([0u8; 64]);
-    // Bitwarden uses HKDF with two separate expand calls: "enc" and "mac"
     let mut enc_key = [0u8; 32];
     let mut mac_key = [0u8; 32];
     hk.expand(b"enc", &mut enc_key)

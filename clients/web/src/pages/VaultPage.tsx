@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useVaultStore, type VaultItem, type ItemType } from "../stores/vault";
+import { useVaultSync } from "../hooks/useVaultSync";
 import styles from "./VaultPage.module.css";
 
 const MOCK_ITEMS: VaultItem[] = [
@@ -196,10 +197,16 @@ function ItemDetail({ item }: { item: VaultItem }) {
 }
 
 export function VaultPage() {
-  const { items: storeItems, selectedItemId, selectItem, searchQuery, setSearchQuery } =
+  const { items: storeItems, selectedItemId, selectItem, searchQuery, setSearchQuery, isSyncing, lastSynced } =
     useVaultStore();
+  const { doSync, error: syncError } = useVaultSync();
 
-  // Use mock items if store is empty (development mode)
+  // Auto-sync on first mount if we have a real server session
+  useEffect(() => {
+    if (!lastSynced) doSync();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Use mock items if store is empty (dev/offline mode)
   const allItems = storeItems.length > 0 ? storeItems : MOCK_ITEMS;
 
   const filtered = allItems.filter(
@@ -227,7 +234,20 @@ export function VaultPage() {
         </div>
 
         <div className={styles.listCount}>
-          {filtered.length} {filtered.length === 1 ? "item" : "items"}
+          {isSyncing
+            ? "Syncing…"
+            : syncError
+            ? `Sync error: ${syncError}`
+            : `${filtered.length} ${filtered.length === 1 ? "item" : "items"}`}
+          {!isSyncing && (
+            <button
+              onClick={doSync}
+              title="Sync now"
+              style={{ marginLeft: 8, fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", background: "none", border: "none", cursor: "pointer" }}
+            >
+              ↻
+            </button>
+          )}
         </div>
 
         <div className={styles.listItems}>

@@ -8,7 +8,7 @@ pub mod totp;
 pub use enc_string::EncString;
 pub use error::CryptoError;
 pub use kdf::{Kdf, KdfParams};
-pub use keys::{MasterKey, OrgKey, UserKey};
+pub use keys::{stretch_master_key, MasterKey, OrgKey, UserKey};
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
