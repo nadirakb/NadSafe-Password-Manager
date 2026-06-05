@@ -19,13 +19,15 @@ interface AuthState {
   isLocked: boolean;
   user: AuthUser | null;
   serverUrl: string;
-  // Session token (short-lived, from server)
   accessToken: string | null;
   refreshToken: string | null;
+  // The server-side encrypted user key (EncString).
+  // Persisted so unlock can unwrap the vault key without a fresh login.
+  encryptedUserKey: string | null;
 
   // Actions
   setServerUrl: (url: string) => void;
-  login: (user: AuthUser, accessToken: string, refreshToken: string) => void;
+  login: (user: AuthUser, accessToken: string, refreshToken: string, encryptedUserKey: string) => void;
   lock: () => void;
   unlock: (accessToken: string) => void;
   logout: () => void;
@@ -40,11 +42,12 @@ export const useAuthStore = create<AuthState>()(
       serverUrl: "",
       accessToken: null,
       refreshToken: null,
+      encryptedUserKey: null,
 
       setServerUrl: (url) => set({ serverUrl: url.replace(/\/$/, "") }),
 
-      login: (user, accessToken, refreshToken) =>
-        set({ isAuthenticated: true, isLocked: false, user, accessToken, refreshToken }),
+      login: (user, accessToken, refreshToken, encryptedUserKey) =>
+        set({ isAuthenticated: true, isLocked: false, user, accessToken, refreshToken, encryptedUserKey }),
 
       lock: () => set({ isLocked: true, accessToken: null }),
 
@@ -68,6 +71,7 @@ export const useAuthStore = create<AuthState>()(
         user: s.user,
         serverUrl: s.serverUrl,
         refreshToken: s.refreshToken,
+        encryptedUserKey: s.encryptedUserKey,
       }),
     },
   ),

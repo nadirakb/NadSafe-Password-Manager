@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
+import { getSessionUserKey } from "./stores/session";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VaultPage } from "./pages/VaultPage";
@@ -16,6 +18,16 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { isAuthenticated, isLocked, lock } = useAuthStore();
+
+  // On every mount/reload: if authenticated but session key is gone (page reload
+  // wiped in-memory key), lock the vault so the user is sent to /unlock.
+  useEffect(() => {
+    if (isAuthenticated && !isLocked && !getSessionUserKey()) {
+      lock();
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

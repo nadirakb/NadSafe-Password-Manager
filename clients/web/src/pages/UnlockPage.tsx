@@ -1,11 +1,15 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import { setSessionUserKey } from "../stores/session";
+import { initApiClient } from "../lib/api/client";
+import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
+import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
 import styles from "./Auth.module.css";
 
 export function UnlockPage() {
   const navigate = useNavigate();
-  const { user, unlock, logout } = useAuthStore();
+  const { user, serverUrl, refreshToken: storedRefreshToken, encryptedUserKey, unlock, logout } = useAuthStore();
 
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -13,15 +17,35 @@ export function UnlockPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!user) return;
     setError("");
     setLoading(true);
     try {
-      // TODO: re-derive master key locally, re-decrypt vault key, verify against stored hash
-      await new Promise((r) => setTimeout(r, 400));
-      unlock("new-access-token");
+      const client = initApiClient(serverUrl);
+
+      // Re-derive the stretched master key from the password
+      // mCost stored in KiB (already converted from MB during login) — use directly
+      const kdfParams = user.kdfType === "argon2id"
+        ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
+        : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
+
+      const { encKey, macKey } = await deriveLoginKeys(password, user.email, kdfParams);
+
+      // Get a fresh access token via refresh token
+      if (!storedRefreshToken) throw new Error("No refresh token — please sign in again");
+      if (!encryptedUserKey) throw new Error("No vault key on file — please sign in again");
+
+      const tokenRes = await refreshToken(client, storedRefreshToken, getOrCreateDeviceId());
+      client.setToken(tokenRes.access_token);
+
+      // Unwrap user key — MAC mismatch = wrong master password
+      const userKey = await unwrapUserKey(encryptedUserKey, { encKey, macKey });
+      setSessionUserKey(userKey);
+      unlock(tokenRes.access_token);
       navigate("/vault");
-    } catch {
-      setError("Incorrect master password");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unlock failed";
+      setError(msg.includes("MAC") ? "Incorrect master password" : msg);
     } finally {
       setLoading(false);
     }

@@ -18,27 +18,28 @@ async function decryptCipher(
   cipher: CipherResponse,
   userKey: SymKey,
 ): Promise<VaultItem> {
-  const name = (await decryptField(cipher.Name, userKey)) ?? "(unnamed)";
+  // Vaultwarden 1.36: all keys are lowercase
+  const name = (await decryptField(cipher.name, userKey)) ?? "(unnamed)";
 
   const item: VaultItem = {
-    id: cipher.Id,
-    type: CIPHER_TYPE[cipher.Type] ?? "login",
+    id: cipher.id,
+    type: CIPHER_TYPE[cipher.type] ?? "login",
     name,
-    folderId: cipher.FolderId,
-    collectionIds: cipher.CollectionIds,
-    favorite: cipher.Favorite,
-    createdAt: cipher.CreationDate,
-    updatedAt: cipher.RevisionDate,
+    folderId: cipher.folderId,
+    collectionIds: cipher.collectionIds,
+    favorite: cipher.favorite,
+    createdAt: cipher.creationDate,
+    updatedAt: cipher.revisionDate,
   };
 
-  if (cipher.Type === 1 && cipher.Login) {
+  if (cipher.type === 1 && cipher.login) {
     const [username, password, totp] = await Promise.all([
-      decryptField(cipher.Login.Username, userKey),
-      decryptField(cipher.Login.Password, userKey),
-      decryptField(cipher.Login.Totp, userKey),
+      decryptField(cipher.login.username, userKey),
+      decryptField(cipher.login.password, userKey),
+      decryptField(cipher.login.totp, userKey),
     ]);
     const uris = await Promise.all(
-      (cipher.Login.Uris ?? []).map((u) => decryptField(u.Uri, userKey)),
+      (cipher.login.uris ?? []).map((u) => decryptField(u.uri, userKey)),
     );
     item.login = {
       username: username ?? "",
@@ -48,8 +49,8 @@ async function decryptCipher(
     };
   }
 
-  if (cipher.Type === 2) {
-    const content = await decryptField(cipher.Notes, userKey);
+  if (cipher.type === 2) {
+    const content = await decryptField(cipher.notes, userKey);
     item.note = { content: content ?? "" };
   }
 
@@ -74,8 +75,8 @@ export function useVaultSync() {
       const client = getApiClient();
       const data = await sync(client);
 
-      // Decrypt all ciphers in parallel (batched to avoid too many concurrent WebCrypto ops)
-      const ciphers = data.Ciphers ?? [];
+      // Vaultwarden 1.36 returns lowercase keys
+      const ciphers = data.ciphers ?? [];
       const BATCH = 20;
       const decrypted: VaultItem[] = [];
       for (let i = 0; i < ciphers.length; i += BATCH) {
@@ -86,23 +87,21 @@ export function useVaultSync() {
         for (const r of results) if (r) decrypted.push(r);
       }
 
-      // Decrypt folders
       const folders = await Promise.all(
-        (data.Folders ?? []).map(async (f) => ({
-          id: f.Id,
-          name: (await decryptField(f.Name, userKey)) ?? "(folder)",
+        (data.folders ?? []).map(async (f) => ({
+          id: f.id,
+          name: (await decryptField(f.name, userKey)) ?? "(folder)",
         })),
       );
 
-      // Decrypt collections
       const collections = await Promise.all(
-        (data.Collections ?? []).map(async (c) => ({
-          id: c.Id,
-          organizationId: c.OrganizationId,
-          name: (await decryptField(c.Name, userKey)) ?? "(collection)",
-          readOnly: c.ReadOnly,
-          hidePasswords: c.HidePasswords,
-          manage: c.Manage,
+        (data.collections ?? []).map(async (c) => ({
+          id: c.id,
+          organizationId: c.organizationId,
+          name: (await decryptField(c.name, userKey)) ?? "(collection)",
+          readOnly: c.readOnly,
+          hidePasswords: c.hidePasswords,
+          manage: c.manage,
         })),
       );
 

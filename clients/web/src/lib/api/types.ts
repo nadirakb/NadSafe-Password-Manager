@@ -1,7 +1,7 @@
-/** Bitwarden-compatible API response types. */
+/** Bitwarden-compatible API response types — Vaultwarden 1.36 (lowercase keys). */
 
 export interface PreloginResponse {
-  kdf: number;       // 0 = PBKDF2, 1 = Argon2id
+  kdf: number;
   kdfIterations: number;
   kdfMemory?: number;
   kdfParallelism?: number;
@@ -13,163 +13,163 @@ export interface TokenResponse {
   token_type: string;
   refresh_token: string;
   scope: string;
-  Key: string;               // encrypted user key (EncString)
-  PrivateKey: string;        // encrypted private RSA key
-  Kdf: number;
-  KdfIterations: number;
-  KdfMemory?: number;
-  KdfParallelism?: number;
-  ResetMasterPassword: boolean;
-  ForcePasswordReset: boolean;
+  /** Encrypted user key (EncString). Returned on password login; absent on token refresh. */
+  Key?: string;  // Vaultwarden 1.35 and earlier
+  key?: string;  // Vaultwarden 1.36 lowercase
+  PrivateKey?: string;
+  kdf?: number;
+  kdfIterations?: number;
+  kdfMemory?: number;
+  kdfParallelism?: number;
+}
+
+/** Helper: get the encrypted user key regardless of case. */
+export function getTokenKey(t: TokenResponse): string | undefined {
+  return t.Key ?? t.key;
 }
 
 export interface RegisterRequest {
   email: string;
   name: string;
-  masterPasswordHash: string;  // base64
+  masterPasswordHash: string;
   masterPasswordHint?: string;
-  key: string;                 // encrypted user key (EncString)
+  key: string;
   kdf: number;
   kdfIterations: number;
   kdfMemory?: number;
   kdfParallelism?: number;
   keys: {
-    publicKey: string;         // RSA public key (base64)
-    encryptedPrivateKey: string; // EncString
+    publicKey: string;
+    encryptedPrivateKey: string;
   };
 }
 
+// ── Sync response — Vaultwarden 1.36 lowercase ─────────────────────────────
+
 export interface SyncResponse {
-  Object: "sync";
-  Profile: ProfileResponse;
-  Folders: FolderResponse[];
-  Collections: CollectionResponse[];
-  Ciphers: CipherResponse[];
-  Domains: null;
-  Sends: SendResponse[];
-  Policies: PolicyResponse[];
+  object: string;
+  profile: ProfileResponse;
+  folders: FolderResponse[];
+  collections: CollectionResponse[];
+  ciphers: CipherResponse[];
+  sends: unknown[];
+  policies: PolicyResponse[];
+  domains: null;
 }
 
 export interface ProfileResponse {
-  Id: string;
-  Name: string;
-  Email: string;
-  EmailVerified: boolean;
-  Premium: boolean;
-  MasterPasswordHint: string | null;
-  Culture: string;
-  TwoFactorEnabled: boolean;
-  Key: string;
-  PrivateKey: string;
-  SecurityStamp: string;
-  Organizations: OrganizationResponse[];
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  premium: boolean;
+  key: string;           // encrypted user key (EncString)
+  privateKey: string;    // encrypted private RSA key (EncString)
+  organizations: OrganizationResponse[];
 }
 
 export interface OrganizationResponse {
-  Id: string;
-  Name: string;
-  Key: string;
-  Type: number; // 0=Owner, 1=Admin, 2=User, 3=Manager
-  Enabled: boolean;
+  id: string;
+  name: string;
+  key: string;
+  type: number;
+  enabled: boolean;
 }
 
 export interface FolderResponse {
-  Id: string;
-  Name: string; // EncString
-  RevisionDate: string;
-  Object: "folder";
+  id: string;
+  name: string;
+  revisionDate: string;
+  object: string;
 }
 
 export interface CollectionResponse {
-  Id: string;
-  OrganizationId: string;
-  Name: string; // EncString
-  ReadOnly: boolean;
-  HidePasswords: boolean;
-  Manage: boolean;
-  Object: "collection";
+  id: string;
+  organizationId: string;
+  name: string;
+  readOnly: boolean;
+  hidePasswords: boolean;
+  manage: boolean;
+  object: string;
 }
 
 export interface CipherResponse {
-  Id: string;
-  OrganizationId: string | null;
-  FolderId: string | null;
-  CollectionIds: string[];
-  Type: number; // 1=Login, 2=Note, 3=Card, 4=Identity
-  Name: string; // EncString
-  Notes: string | null; // EncString
-  Favorite: boolean;
-  RevisionDate: string;
-  CreationDate: string;
-  DeletedDate: string | null;
-  Reprompt: number;
-  Fields: CipherFieldResponse[] | null;
-  Attachments: AttachmentResponse[] | null;
-  Login?: LoginDataResponse;
-  SecureNote?: SecureNoteDataResponse;
-  Card?: CardDataResponse;
-  Identity?: IdentityDataResponse;
-  Object: "cipher";
+  id: string;
+  organizationId: string | null;
+  folderId: string | null;
+  collectionIds: string[];
+  type: number;  // 1=Login, 2=SecureNote, 3=Card, 4=Identity
+  name: string;  // EncString
+  notes: string | null;
+  favorite: boolean;
+  revisionDate: string;
+  creationDate: string;
+  deletedDate: string | null;
+  reprompt: number;
+  fields: CipherFieldResponse[] | null;
+  attachments: AttachmentResponse[] | null;
+  login?: LoginDataResponse;
+  secureNote?: SecureNoteDataResponse;
+  card?: CardDataResponse;
+  identity?: IdentityDataResponse;
+  key: string | null;
+  object: string;
 }
 
 export interface LoginDataResponse {
-  Username: string | null;    // EncString
-  Password: string | null;    // EncString
-  Totp: string | null;        // EncString
-  Uris: UriResponse[] | null;
+  username: string | null;
+  password: string | null;
+  totp: string | null;
+  uris: UriResponse[] | null;
 }
 
 export interface UriResponse {
-  Uri: string;  // EncString
-  Match: number | null;
+  uri: string;
+  match: number | null;
 }
 
 export interface SecureNoteDataResponse {
-  Type: number;
+  type: number;
 }
 
 export interface CardDataResponse {
-  CardholderName: string | null;
-  Brand: string | null;
-  Number: string | null;
-  ExpMonth: string | null;
-  ExpYear: string | null;
-  Code: string | null;
+  cardholderName: string | null;
+  brand: string | null;
+  number: string | null;
+  expMonth: string | null;
+  expYear: string | null;
+  code: string | null;
 }
 
 export interface IdentityDataResponse {
-  Title: string | null;
-  FirstName: string | null;
-  LastName: string | null;
-  Email: string | null;
-  Phone: string | null;
-  Company: string | null;
+  title: string | null;
+  firstName: string | null;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
 }
 
 export interface CipherFieldResponse {
-  Type: number;
-  Name: string | null;
-  Value: string | null;
+  type: number;
+  name: string | null;
+  value: string | null;
 }
 
 export interface AttachmentResponse {
-  Id: string;
-  Url: string;
-  FileName: string;
-  Size: string;
-  SizeName: string;
-}
-
-export interface SendResponse {
-  Id: string;
+  id: string;
+  url: string;
+  fileName: string;
+  size: string;
+  sizeName: string;
 }
 
 export interface PolicyResponse {
-  Id: string;
-  OrganizationId: string;
-  Type: number;
-  Data: Record<string, unknown> | null;
-  Enabled: boolean;
+  id: string;
+  organizationId: string;
+  type: number;
+  data: Record<string, unknown> | null;
+  enabled: boolean;
 }
 
 export interface ApiError {

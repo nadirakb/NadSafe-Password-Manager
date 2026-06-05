@@ -4,6 +4,7 @@ import { useAuthStore } from "../stores/auth";
 import { clearSessionKey, setSessionUserKey } from "../stores/session";
 import { initApiClient } from "../lib/api/client";
 import { prelogin, loginWithPassword, register, getOrCreateDeviceId } from "../lib/api/auth";
+import { getTokenKey } from "../lib/api/types";
 import {
   deriveLoginKeys,
   generateUserKey,
@@ -56,13 +57,15 @@ export function useLogin() {
         // 4. Set token on client
         client.setToken(tokenRes.access_token);
 
-        // 5. Unwrap user key
-        const userKey = await unwrapUserKey(tokenRes.Key, { encKey, macKey });
+        // 5. Unwrap user key (Key/key field differs by Vaultwarden version)
+        const encUserKey = getTokenKey(tokenRes);
+        if (!encUserKey) throw new Error("Server did not return vault key — check server compatibility");
+        const userKey = await unwrapUserKey(encUserKey, { encKey, macKey });
 
         // 6. Store in-memory session key (never persisted)
         setSessionUserKey(userKey);
 
-        // 7. Update auth store
+        // 7. Update auth store (persist encryptedUserKey for unlock)
         login(
           {
             id: "pending-from-sync",
@@ -75,6 +78,7 @@ export function useLogin() {
           },
           tokenRes.access_token,
           tokenRes.refresh_token,
+          encUserKey,
         );
 
         navigate("/vault");
@@ -138,7 +142,9 @@ export function useRegister() {
         const tokenRes = await loginWithPassword(client, email, authHash, deviceId);
         client.setToken(tokenRes.access_token);
 
-        const userKey = await unwrapUserKey(tokenRes.Key, { encKey, macKey });
+        const regTokenKey = getTokenKey(tokenRes);
+        if (!regTokenKey) throw new Error("Server did not return vault key after registration");
+        const userKey = await unwrapUserKey(regTokenKey, { encKey, macKey });
         setSessionUserKey(userKey);
 
         login(
@@ -151,6 +157,7 @@ export function useRegister() {
           },
           tokenRes.access_token,
           tokenRes.refresh_token,
+          regTokenKey,
         );
 
         navigate("/vault");
