@@ -75,10 +75,11 @@ export function useVaultSync() {
       const data = await sync(client);
 
       // Decrypt all ciphers in parallel (batched to avoid too many concurrent WebCrypto ops)
+      const ciphers = data.Ciphers ?? [];
       const BATCH = 20;
       const decrypted: VaultItem[] = [];
-      for (let i = 0; i < data.Ciphers.length; i += BATCH) {
-        const batch = data.Ciphers.slice(i, i + BATCH);
+      for (let i = 0; i < ciphers.length; i += BATCH) {
+        const batch = ciphers.slice(i, i + BATCH);
         const results = await Promise.all(
           batch.map((c) => decryptCipher(c, userKey).catch(() => null)),
         );
@@ -87,7 +88,7 @@ export function useVaultSync() {
 
       // Decrypt folders
       const folders = await Promise.all(
-        data.Folders.map(async (f) => ({
+        (data.Folders ?? []).map(async (f) => ({
           id: f.Id,
           name: (await decryptField(f.Name, userKey)) ?? "(folder)",
         })),
@@ -95,7 +96,7 @@ export function useVaultSync() {
 
       // Decrypt collections
       const collections = await Promise.all(
-        data.Collections.map(async (c) => ({
+        (data.Collections ?? []).map(async (c) => ({
           id: c.Id,
           organizationId: c.OrganizationId,
           name: (await decryptField(c.Name, userKey)) ?? "(collection)",

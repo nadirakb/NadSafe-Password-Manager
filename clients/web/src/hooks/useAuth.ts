@@ -15,9 +15,11 @@ import type { KdfParams } from "../lib/crypto/types";
 
 function serverKdfToParams(res: { kdf: number; kdfIterations: number; kdfMemory?: number; kdfParallelism?: number }): KdfParams {
   if (res.kdf === 1) {
+    // Vaultwarden 1.32+ returns kdfMemory in MB; convert to KiB for our crypto layer
+    const mCostMB = res.kdfMemory ?? 64;
     return {
       type: "argon2id",
-      mCost: res.kdfMemory ?? 65536,
+      mCost: mCostMB * 1024,
       tCost: res.kdfIterations,
       pCost: res.kdfParallelism ?? 4,
     };
@@ -122,7 +124,8 @@ export function useRegister() {
           key: encryptedUserKey,
           kdf: 1, // argon2id
           kdfIterations: kdfParams.tCost,
-          kdfMemory: kdfParams.mCost,
+          // Vaultwarden 1.32+ expects kdfMemory in MB, not KiB
+          kdfMemory: Math.round(kdfParams.mCost / 1024),
           kdfParallelism: kdfParams.pCost,
           keys: {
             publicKey: rsaPublicKey,

@@ -96,6 +96,12 @@ export function getApiClient(): ApiClient {
 }
 
 export function initApiClient(serverUrl: string): ApiClient {
-  _client = new ApiClient(serverUrl);
+  // When server URL matches the current page origin, use empty base so
+  // the Vite dev proxy (or same-origin deployment) intercepts /api and /identity.
+  const base =
+    serverUrl === window.location.origin || serverUrl === ""
+      ? ""
+      : serverUrl;
+  _client = new ApiClient(base);
   return _client;
 }

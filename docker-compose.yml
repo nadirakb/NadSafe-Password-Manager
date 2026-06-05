@@ -15,9 +15,6 @@ services:
       # Admin panel — set a token to enable (disabled by default)
       # ADMIN_TOKEN: "changeme-set-a-real-value"
 
-      # Dev: disable HTTPS requirement (we're on localhost)
-      ROCKET_TLS: "{certs=\"\",key=\"\"}"
-
       # Log level
       LOG_LEVEL: "warn"
       EXTENDED_LOGGING: "false"

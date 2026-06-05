@@ -20,7 +20,7 @@ export function RegisterPage() {
   const { serverUrl } = useAuthStore();
   const { doRegister, loading, error } = useRegister();
 
-  const [server, setServer] = useState(serverUrl || "http://localhost:8000");
+  const [server, setServer] = useState(serverUrl || window.location.origin);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

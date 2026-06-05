@@ -10,7 +10,7 @@ export function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [server, setServer] = useState(serverUrl || "http://localhost:8000");
+  const [server, setServer] = useState(serverUrl || window.location.origin);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

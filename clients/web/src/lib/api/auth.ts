@@ -39,12 +39,16 @@ export async function loginWithPassword(
   );
 }
 
-/** Register a new account. */
+/** Register a new account.
+ *
+ * Vaultwarden 1.32+ uses /identity/accounts/register.
+ * kdfMemory is in MB (not KiB) per the Vaultwarden 1.36 API.
+ */
 export async function register(
   client: ApiClient,
   req: RegisterRequest,
 ): Promise<void> {
-  return client.post<void>("/api/accounts/register", req, { noAuth: true });
+  return client.post<void>("/identity/accounts/register", req, { noAuth: true });
 }
 
 /** Refresh access token. */
