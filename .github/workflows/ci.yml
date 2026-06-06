@@ -15,9 +15,9 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
-  # ── Crypto core ───────────────────────────────────────────
+  # ── Crypto core ───────────────────────────────────────────────────────────
   crypto-core:
-    name: Crypto core (test + clippy)
+    name: Crypto core (test + clippy + fmt)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,10 +32,10 @@ jobs:
       - name: clippy
         run: cargo clippy -p nadsafe-crypto-core -- -D warnings
 
-      - name: test
+      - name: test (incl. Bitwarden conformance vectors)
         run: cargo test -p nadsafe-crypto-core
 
-  # ── WASM build ────────────────────────────────────────────
+  # ── WASM build ────────────────────────────────────────────────────────────
   crypto-core-wasm:
     name: Crypto core (WASM)
     runs-on: ubuntu-latest
@@ -50,53 +50,120 @@ jobs:
       - name: build wasm
         run: wasm-pack build crates/crypto-core --target web --features wasm
 
-  # ── Web UI ────────────────────────────────────────────────
+  # ── Node — shared install step ────────────────────────────────────────────
+  # Both web and extension use npm workspaces rooted at the repo root.
+  # npm ci from root installs all workspace deps in one step.
+  node-install:
+    name: npm ci (workspace root)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install all workspace deps
+        run: npm ci --ignore-scripts
+      # Cache node_modules for downstream jobs
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            clients/web/node_modules
+            clients/extension/node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+
+  # ── Web UI ────────────────────────────────────────────────────────────────
   web:
     name: Web UI (typecheck + build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: clients/web
+    needs: node-install
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: clients/web/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            clients/web/node_modules
+            clients/extension/node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
 
-  # ── Extension ─────────────────────────────────────────────
+      - name: typecheck
+        run: npm run typecheck --workspace=clients/web
+
+      - name: build
+        run: npm run build --workspace=clients/web
+
+  # ── Extension ─────────────────────────────────────────────────────────────
   extension:
-    name: Extension (build)
+    name: Extension (typecheck + build)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: clients/extension
+    needs: node-install
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: clients/extension/package-lock.json
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run build
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            clients/web/node_modules
+            clients/extension/node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
 
-  # ── Desktop (check only on CI — full build needs Tauri system deps) ──
+      - name: typecheck
+        run: npm run typecheck --workspace=clients/extension
+
+      - name: build
+        run: npm run build --workspace=clients/extension
+
+      # Verify manifest.json and icons copied to dist
+      - name: verify extension dist
+        run: |
+          test -f clients/extension/dist/manifest.json
+          test -f clients/extension/dist/icons/icon-128.png
+          echo "Extension dist OK"
+
+  # ── Desktop (check only — full Tauri build is in release.yml) ─────────────
   desktop-check:
-    name: Desktop (cargo check)
+    name: Desktop (cargo check + clippy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Install Tauri system deps
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get update -q
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
       - name: check
         run: cargo check -p nadsafe-desktop
+
+      - name: clippy
+        run: cargo clippy -p nadsafe-desktop -- -D warnings
+
+  # ── Status gate ───────────────────────────────────────────────────────────
+  # Single required status check for branch protection.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [crypto-core, crypto-core-wasm, web, extension, desktop-check]
+    if: always()
+    steps:
+      - name: check all jobs
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "One or more CI jobs failed"
+            exit 1
+          fi
+          echo "All CI jobs passed"

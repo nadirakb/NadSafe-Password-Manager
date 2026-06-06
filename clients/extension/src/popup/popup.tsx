@@ -1,4 +1,4 @@
-import { StrictMode, useState, useEffect, type FormEvent } from "react";
+import { StrictMode, useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./popup.css";
 
@@ -243,12 +243,6 @@ function ListView({
             key={item.id}
             className={["item-row", filled === item.id ? "item-filled" : ""].join(" ")}
             onClick={() => {
-              const match: VaultMatch = {
-                id: item.id,
-                name: item.name,
-                username: item.login?.username ?? "",
-                password: item.login?.password ?? "",
-              };
               handleAutofill(item.id);
             }}
           >

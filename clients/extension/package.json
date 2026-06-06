@@ -9,9 +9,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "hash-wasm": "^4.11.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "hash-wasm": "^4.11.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.288",
@@ -19,6 +19,7 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vite-plugin-static-copy": "^4.1.0"
   }
 }
