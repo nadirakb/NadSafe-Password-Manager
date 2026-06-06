@@ -145,6 +145,32 @@ export async function removeOrgMember(
   return client.delete<void>(`/api/organizations/${orgId}/users/${memberId}`);
 }
 
+export interface OrgMemberDetailResponse extends OrgMemberResponse {
+  publicKey: string | null;   // SPKI base64 — only present for accepted/confirmed members
+}
+
+/** Fetch one org member's detail including their RSA public key. */
+export async function getOrgMember(
+  client: ApiClient,
+  orgId: string,
+  memberId: string,
+): Promise<OrgMemberDetailResponse> {
+  return client.get<OrgMemberDetailResponse>(`/api/organizations/${orgId}/users/${memberId}`);
+}
+
+/**
+ * Confirm an accepted member and share the org key encrypted to their public key.
+ * @param key - org symmetric key RSA-encrypted to the member's public key (base64)
+ */
+export async function confirmOrgMember(
+  client: ApiClient,
+  orgId: string,
+  memberId: string,
+  key: string,
+): Promise<void> {
+  return client.post<void>(`/api/organizations/${orgId}/users/${memberId}/confirm`, { key });
+}
+
 export async function listOrgGroups(client: ApiClient, orgId: string): Promise<OrgGroupResponse[]> {
   const res = await client.get<{ data: OrgGroupResponse[] }>(`/api/organizations/${orgId}/groups`);
   return res.data ?? [];

@@ -24,29 +24,7 @@ interface VaultItem {
 
 type View = "locked" | "list" | "generator";
 
-// ── Fuzzy search ──────────────────────────────────────────────────
-
-/** Subsequence fuzzy match. Returns {match, score} where higher score = better. */
-function fuzzyMatch(text: string, query: string): { match: boolean; score: number } {
-  const t = text.toLowerCase();
-  const q = query.toLowerCase();
-  if (!q) return { match: true, score: 0 };
-  // Exact substring — best
-  const exactIdx = t.indexOf(q);
-  if (exactIdx !== -1) return { match: true, score: 1000 - exactIdx };
-  // Word-start prefix — next best
-  const words = t.split(/[\s._/-]+/);
-  for (const w of words) {
-    if (w.startsWith(q)) return { match: true, score: 500 };
-  }
-  // Subsequence — each char of q must appear in order in t
-  let ti = 0, qi = 0, score = 0;
-  while (ti < t.length && qi < q.length) {
-    if (t[ti] === q[qi]) { score++; qi++; }
-    ti++;
-  }
-  return { match: qi === q.length, score };
-}
+import { fuzzyMatch } from "../lib/fuzzy";
 
 // ── Background messaging ───────────────────────────────────────────
 

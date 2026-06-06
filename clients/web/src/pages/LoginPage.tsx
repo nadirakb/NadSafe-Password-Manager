@@ -2,34 +2,8 @@ import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useLogin } from "../hooks/useAuth";
+import { getRLState, setRLState, clearRLState, backoffSeconds } from "../lib/rateLimit";
 import styles from "./Auth.module.css";
-
-// ─── Client-side rate limiting ────────────────────────────────────────────────
-// Prevents brute-force against the KDF + server. Server also enforces limits,
-// but this stops Argon2id from being hammered client-side on repeated failures.
-
-const RL_KEY = (server: string, email: string) => `ns_rl:${server.replace(/\/$/, "")}|${email}`;
-
-interface RLState { fails: number; lockedUntil: number }
-
-function getRLState(server: string, email: string): RLState {
-  try {
-    const raw = localStorage.getItem(RL_KEY(server, email));
-    if (raw) return JSON.parse(raw) as RLState;
-  } catch { /* ignore */ }
-  return { fails: 0, lockedUntil: 0 };
-}
-function setRLState(server: string, email: string, s: RLState) {
-  try { localStorage.setItem(RL_KEY(server, email), JSON.stringify(s)); } catch { /* ignore */ }
-}
-function clearRLState(server: string, email: string) {
-  try { localStorage.removeItem(RL_KEY(server, email)); } catch { /* ignore */ }
-}
-/** Exponential backoff in seconds after N failures: 0 × 3, then 30→60→120→300→600 */
-function backoffSeconds(fails: number): number {
-  if (fails < 3) return 0;
-  return [30, 60, 120, 300, 600][Math.min(fails - 3, 4)];
-}
 
 export function LoginPage() {
   const { serverUrl } = useAuthStore();

@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useOutletContext } from "react-router-dom";
 import { getApiClient } from "../../lib/api/client";
 import { inviteMembers, removeOrgMember, type OrgMemberResponse, type OrgResponse } from "../../lib/api/orgs";
-import { useOrgMembers } from "../../hooks/useOrg";
+import { useOrgMembers, confirmMemberWithOrgKey } from "../../hooks/useOrg";
 import styles from "./Org.module.css";
 
 type Ctx = { org: OrgResponse; orgId: string };
@@ -14,12 +14,13 @@ const STATUS_COLOR: Record<number, string> = {
 };
 
 export function OrgMembers() {
-  const { orgId } = useOutletContext<Ctx>();
+  const { org, orgId } = useOutletContext<Ctx>();
   const { members, loading, error, reload } = useOrgMembers(orgId);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteType, setInviteType] = useState(2); // User
   const [inviting, setInviting] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -40,6 +41,21 @@ export function OrgMembers() {
       setInviteError(err instanceof Error ? err.message : "Invite failed");
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleConfirm(member: OrgMemberResponse) {
+    if (!confirm(`Confirm ${member.email} and share org key?`)) return;
+    setConfirmingId(member.id);
+    try {
+      const err = await confirmMemberWithOrgKey(orgId, org, member.id);
+      if (err) {
+        alert(`Confirm failed: ${err}`);
+      } else {
+        reload();
+      }
+    } finally {
+      setConfirmingId(null);
     }
   }
 
@@ -115,9 +131,21 @@ export function OrgMembers() {
                 </span>
               </td>
               <td>
-                {m.type !== 0 && (
-                  <button className={styles.btnDanger} onClick={() => handleRemove(m)}>Remove</button>
-                )}
+                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                  {m.status === 1 && (
+                    <button
+                      className={styles.btnPrimary}
+                      onClick={() => handleConfirm(m)}
+                      disabled={confirmingId === m.id}
+                      title="Confirm member and share org key"
+                    >
+                      {confirmingId === m.id ? "Confirming…" : "Confirm"}
+                    </button>
+                  )}
+                  {m.type !== 0 && (
+                    <button className={styles.btnDanger} onClick={() => handleRemove(m)}>Remove</button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}

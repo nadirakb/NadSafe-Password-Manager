@@ -95,6 +95,9 @@ jobs:
       - name: lint
         run: npm run lint --workspace=clients/web
 
+      - name: test
+        run: npm run test --workspace=clients/web
+
       - name: typecheck
         run: npm run typecheck --workspace=clients/web
 
@@ -118,6 +121,9 @@ jobs:
             clients/web/node_modules
             clients/extension/node_modules
           key: node-modules-${{ hashFiles('package-lock.json') }}
+
+      - name: test
+        run: npm run test --workspace=clients/extension
 
       - name: typecheck
         run: npm run typecheck --workspace=clients/extension

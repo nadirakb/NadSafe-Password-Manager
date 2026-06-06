@@ -9,6 +9,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { VaultPage } from "./pages/VaultPage";
 import { UnlockPage } from "./pages/UnlockPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TotpSetupPage } from "./pages/TotpSetupPage";
 import { RecoveryPage } from "./pages/RecoveryPhrasePage";
 import { OrganizationsPage } from "./pages/OrganizationsPage";
 import { ImportPage } from "./pages/ImportPage";
@@ -73,6 +74,7 @@ export default function App() {
         </Route>
         <Route path="import" element={<ImportPage />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="settings/2fa" element={<TotpSetupPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

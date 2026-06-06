@@ -29,7 +29,7 @@ export function TotpDisplay({ secret }: Props) {
       if (s === 30 && active) void init(); // new 30s window
     }, 1000);
     return () => { active = false; clearInterval(interval); };
-  }, [secret]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [secret]);
 
   function copy() {
     if (!code) return;

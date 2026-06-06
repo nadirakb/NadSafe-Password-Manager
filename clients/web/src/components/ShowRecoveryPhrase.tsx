@@ -30,9 +30,13 @@ export function ShowRecoveryPhrase({ entropy, onDismiss }: Props) {
         <p className={styles.desc}>
           This phrase is the <strong>only way to recover your vault</strong> if you forget your
           master password. Write it down and store it somewhere safe.
-          <br /><br />
-          NadSafe cannot recover your vault without this phrase — it is never sent to our servers.
         </p>
+
+        <div className={styles.warning}>
+          ⚠️ <strong>Device-local:</strong> this phrase is stored only on this device.
+          If you lose this device without noting the phrase below, your vault is{" "}
+          <strong>permanently unrecoverable</strong>. NadSafe has no server copy.
+        </div>
 
         <div className={styles.phraseGrid}>
           {words.map((word, i) => (

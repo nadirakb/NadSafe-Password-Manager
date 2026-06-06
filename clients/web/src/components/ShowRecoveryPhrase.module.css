@@ -43,6 +43,16 @@
   line-height: 1.6;
 }
 
+.warning {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-sm);
+  color: #78350f;
+  line-height: 1.5;
+}
+
 .phraseGrid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

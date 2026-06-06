@@ -4,6 +4,8 @@ import { getSessionUserKey, getSessionRsaKey } from "../stores/session";
 import {
   createOrg,
   listOrgMembers,
+  getOrgMember,
+  confirmOrgMember,
   listOrgGroups,
   listOrgCollections,
   listOrgEvents,
@@ -95,6 +97,42 @@ export function useCreateOrg() {
   );
 
   return { doCreate, loading, error };
+}
+
+/**
+ * Confirm an accepted org member — decrypt org key with our RSA private key,
+ * re-encrypt to the member's RSA public key, and POST confirm.
+ *
+ * @param org - org object with org.key (our encrypted copy of the org sym key)
+ * @param memberId - org-user UUID to confirm
+ * @returns error string on failure, null on success
+ */
+export async function confirmMemberWithOrgKey(
+  orgId: string,
+  org: OrgResponse,
+  memberId: string,
+): Promise<string | null> {
+  try {
+    const client = getApiClient();
+
+    // 1. Decrypt org symmetric key with our RSA private key
+    const orgKeyBytes = await decryptOrgKey(org.key);
+    if (!orgKeyBytes) return "Vault locked or RSA key unavailable";
+
+    // 2. Fetch the accepted member's public key
+    const memberDetail = await getOrgMember(client, orgId, memberId);
+    if (!memberDetail.publicKey) return "Member has no public key — they must accept the invitation first";
+
+    // 3. RSA-encrypt org key to member's public key
+    const memberPubKey = await importRsaPublicKey(memberDetail.publicKey);
+    const encOrgKeyForMember = await rsaEncrypt(orgKeyBytes, memberPubKey);
+
+    // 4. Confirm the member
+    await confirmOrgMember(client, orgId, memberId, encOrgKeyForMember);
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : "Confirm failed";
+  }
 }
 
 /** Decrypt org key using the current session's RSA private key. */
