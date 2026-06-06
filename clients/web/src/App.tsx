@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { getSessionUserKey } from "./stores/session";
 import { useTauriAutoLock } from "./hooks/useTauriAutoLock";
+import { useVaultTimeout } from "./hooks/useVaultTimeout";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VaultPage } from "./pages/VaultPage";
@@ -32,6 +33,8 @@ export default function App() {
 
   // Lock vault when Tauri desktop window regains focus after OS sleep/lock
   useTauriAutoLock();
+  // Lock vault after configurable inactivity period
+  useVaultTimeout();
 
   useEffect(() => {
     if (isAuthenticated && !isLocked && !getSessionUserKey()) {

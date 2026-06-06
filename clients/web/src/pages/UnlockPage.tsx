@@ -45,7 +45,8 @@ export function UnlockPage() {
       setSessionUserKey(userKey);
 
       // Restore RSA private key for org operations
-      if (encryptedPrivateKey && !encryptedPrivateKey.startsWith("2.placeholder")) {
+      // EncString must contain "|" — rejects null, empty, and legacy placeholder values
+      if (encryptedPrivateKey && encryptedPrivateKey.includes("|")) {
         try {
           const sym = symKeyFromBytes(userKey.encKey);
           const rsaKey = await decryptRsaPrivateKey(encryptedPrivateKey, sym);

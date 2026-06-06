@@ -2,6 +2,10 @@ import { StrictMode, useState, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import "./popup.css";
 
+// Polyfill: Firefox exposes `browser`, Chrome exposes `chrome`.
+declare const browser: typeof chrome | undefined;
+const ext = (typeof browser !== "undefined" ? browser : chrome);
+
 // ── Types ──────────────────────────────────────────────────────────
 
 interface VaultMatch {
@@ -20,11 +24,35 @@ interface VaultItem {
 
 type View = "locked" | "list" | "generator";
 
+// ── Fuzzy search ──────────────────────────────────────────────────
+
+/** Subsequence fuzzy match. Returns {match, score} where higher score = better. */
+function fuzzyMatch(text: string, query: string): { match: boolean; score: number } {
+  const t = text.toLowerCase();
+  const q = query.toLowerCase();
+  if (!q) return { match: true, score: 0 };
+  // Exact substring — best
+  const exactIdx = t.indexOf(q);
+  if (exactIdx !== -1) return { match: true, score: 1000 - exactIdx };
+  // Word-start prefix — next best
+  const words = t.split(/[\s._/-]+/);
+  for (const w of words) {
+    if (w.startsWith(q)) return { match: true, score: 500 };
+  }
+  // Subsequence — each char of q must appear in order in t
+  let ti = 0, qi = 0, score = 0;
+  while (ti < t.length && qi < q.length) {
+    if (t[ti] === q[qi]) { score++; qi++; }
+    ti++;
+  }
+  return { match: qi === q.length, score };
+}
+
 // ── Background messaging ───────────────────────────────────────────
 
 function sendMsg<T>(msg: object): Promise<T> {
   return new Promise((resolve) =>
-    chrome.runtime.sendMessage(msg, (res) => resolve(res ?? ({} as T))),
+    ext.runtime.sendMessage(msg, (res) => resolve(res ?? ({} as T))),
   );
 }
 
@@ -51,8 +79,8 @@ async function queryMatches(url: string): Promise<VaultMatch[]> {
 }
 
 async function autofill(itemId: string): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "AUTOFILL", itemId });
+  const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id) ext.tabs.sendMessage(tab.id, { type: "AUTOFILL", itemId });
 }
 
 // ── Password Generator ────────────────────────────────────────────
@@ -102,7 +130,7 @@ function LockedView({ onUnlock }: { onUnlock: () => void }) {
         <div className="lock-actions">
           <button
             className="btn-outline"
-            onClick={() => chrome.tabs.create({ url: "http://localhost:5173" })}
+            onClick={() => ext.tabs.create({ url: "http://localhost:5173" })}
           >
             Open NadSafe ↗
           </button>
@@ -158,8 +186,14 @@ function ListView({
 
   const filteredAll = allItems
     .filter((i) => i.type === "login")
-    .filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()) ||
-      (i.login?.username ?? "").toLowerCase().includes(search.toLowerCase()));
+    .map((i) => {
+      const nr = fuzzyMatch(i.name, search);
+      const ur = fuzzyMatch(i.login?.username ?? "", search);
+      return { item: i, match: nr.match || ur.match, score: Math.max(nr.score, ur.score) };
+    })
+    .filter(({ match }) => !search || match)
+    .sort((a, b) => b.score - a.score)
+    .map(({ item }) => item);
 
   return (
     <div className="view">
@@ -258,7 +292,7 @@ function ListView({
 
       <div className="footer">
         <span className="footer-count">{allItems.length} items synced</span>
-        <a href="#" onClick={(e) => { e.preventDefault(); chrome.tabs.create({ url: "http://localhost:5173" }); }}
+        <a href="#" onClick={(e) => { e.preventDefault(); ext.tabs.create({ url: "http://localhost:5173" }); }}
           className="footer-link">Open vault</a>
       </div>
     </div>
@@ -318,7 +352,7 @@ function Popup() {
   }, []);
 
   async function loadVault() {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
     const url = tab?.url ?? "";
     setCurrentUrl(url);
 

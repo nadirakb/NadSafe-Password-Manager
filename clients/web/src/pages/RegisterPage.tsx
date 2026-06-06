@@ -3,19 +3,8 @@ import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useRegister } from "../hooks/useAuth";
 import { ShowRecoveryPhrase } from "../components/ShowRecoveryPhrase";
+import { passwordStrength } from "../lib/password-strength";
 import styles from "./Auth.module.css";
-
-function passwordStrength(pw: string): { score: number; label: string; color: string } {
-  let score = 0;
-  if (pw.length >= 12) score++;
-  if (pw.length >= 20) score++;
-  if (/[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const labels = ["Too short", "Weak", "Fair", "Good", "Strong", "Very strong"];
-  const colors = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#16a34a", "#15803d"];
-  return { score, label: labels[score] ?? "Strong", color: colors[score] ?? "#15803d" };
-}
 
 export function RegisterPage() {
   const { serverUrl } = useAuthStore();

@@ -1,20 +1,80 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, useRef, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useLogin } from "../hooks/useAuth";
 import styles from "./Auth.module.css";
 
+// ─── Client-side rate limiting ────────────────────────────────────────────────
+// Prevents brute-force against the KDF + server. Server also enforces limits,
+// but this stops Argon2id from being hammered client-side on repeated failures.
+
+const RL_KEY = (server: string, email: string) => `ns_rl:${server.replace(/\/$/, "")}|${email}`;
+
+interface RLState { fails: number; lockedUntil: number }
+
+function getRLState(server: string, email: string): RLState {
+  try {
+    const raw = localStorage.getItem(RL_KEY(server, email));
+    if (raw) return JSON.parse(raw) as RLState;
+  } catch { /* ignore */ }
+  return { fails: 0, lockedUntil: 0 };
+}
+function setRLState(server: string, email: string, s: RLState) {
+  try { localStorage.setItem(RL_KEY(server, email), JSON.stringify(s)); } catch { /* ignore */ }
+}
+function clearRLState(server: string, email: string) {
+  try { localStorage.removeItem(RL_KEY(server, email)); } catch { /* ignore */ }
+}
+/** Exponential backoff in seconds after N failures: 0 × 3, then 30→60→120→300→600 */
+function backoffSeconds(fails: number): number {
+  if (fails < 3) return 0;
+  return [30, 60, 120, 300, 600][Math.min(fails - 3, 4)];
+}
+
 export function LoginPage() {
   const { serverUrl } = useAuthStore();
-  const { doLogin, loading, error } = useLogin();
+  const { doLogin, loading, error, needsTwoFactor } = useLogin();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [server, setServer] = useState(serverUrl || window.location.origin);
+  const [totpToken, setTotpToken] = useState("");
+  // lockedUntil: epoch ms when lockout expires; 0 = not locked
+  const [lockedUntil, setLockedUntil] = useState<number>(0);
+  const [secsLeft, setSecsLeft] = useState<number>(0);
+  const prevErrorRef = useRef<string | null>(null);
+
+  // Countdown timer — runs only when locked; updates secsLeft each second
+  useEffect(() => {
+    if (lockedUntil === 0) { setSecsLeft(0); return; }
+    function tick() {
+      const remaining = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
+      setSecsLeft(remaining);
+      if (remaining > 0) timerId = window.setTimeout(tick, 1000);
+    }
+    let timerId = window.setTimeout(tick, 0);
+    return () => clearTimeout(timerId);
+  }, [lockedUntil]);
+
+  // On error from useLogin: record failure in localStorage, update lockedUntil state
+  useEffect(() => {
+    if (!error || error === prevErrorRef.current) return;
+    prevErrorRef.current = error;
+    if (error.includes("Two-factor")) return; // mid-flow, not a failure
+    const rl = getRLState(server, email);
+    const newFails = rl.fails + 1;
+    const delay = backoffSeconds(newFails);
+    const until = delay > 0 ? Date.now() + delay * 1000 : 0;
+    setRLState(server, email, { fails: newFails, lockedUntil: until });
+    setLockedUntil(until);
+  }, [error]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    await doLogin(server, email, password);
+    if (secsLeft > 0) return;
+    prevErrorRef.current = null;
+    await doLogin(server, email, password, needsTwoFactor ? totpToken : undefined);
+    if (!error) { clearRLState(server, email); setLockedUntil(0); }
   }
 
   return (
@@ -26,51 +86,92 @@ export function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="server">Server URL</label>
-            <input
-              id="server"
-              type="url"
-              className={styles.input}
-              value={server}
-              onChange={(e) => setServer(e.target.value)}
-              placeholder="https://vault.example.com"
-              required
-            />
-          </div>
+          {!needsTwoFactor && (
+            <>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="server">Server URL</label>
+                <input
+                  id="server"
+                  type="url"
+                  className={styles.input}
+                  value={server}
+                  onChange={(e) => setServer(e.target.value)}
+                  placeholder="https://vault.example.com"
+                  required
+                />
+              </div>
 
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="email">Email address</label>
-            <input
-              id="email"
-              type="email"
-              className={styles.input}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              autoComplete="email"
-              required
-            />
-          </div>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="email">Email address</label>
+                <input
+                  id="email"
+                  type="email"
+                  className={styles.input}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                />
+              </div>
 
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="password">Master password</label>
-            <input
-              id="password"
-              type="password"
-              className={styles.input}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your master password"
-              autoComplete="current-password"
-              required
-            />
-          </div>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="password">Master password</label>
+                <input
+                  id="password"
+                  type="password"
+                  className={styles.input}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your master password"
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
+            </>
+          )}
+
+          {needsTwoFactor && (
+            <div className={styles.field}>
+              <div className={styles.twoFactorBanner}>
+                🔐 Two-factor authentication required
+              </div>
+              <label className={styles.label} htmlFor="totp">
+                Authentication code (6 digits)
+              </label>
+              <input
+                id="totp"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                className={styles.input}
+                value={totpToken}
+                onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                autoComplete="one-time-code"
+                autoFocus
+                required
+              />
+              <p className={styles.twoFactorHint}>
+                Enter the code from your authenticator app or security key.
+              </p>
+            </div>
+          )}
 
           {error && <p className={styles.error}>{error}</p>}
 
-          <button type="submit" className={styles.submitBtn} disabled={loading}>
-            {loading ? "Signing in…" : "Sign in"}
+          {secsLeft > 0 && (
+            <p className={styles.error}>
+              Too many failed attempts. Try again in {secsLeft}s.
+            </p>
+          )}
+
+          <button type="submit" className={styles.submitBtn} disabled={loading || secsLeft > 0}>
+            {loading
+              ? needsTwoFactor ? "Verifying…" : "Signing in…"
+              : secsLeft > 0 ? `Locked (${secsLeft}s)`
+              : needsTwoFactor ? "Verify code" : "Sign in"}
           </button>
         </form>
 

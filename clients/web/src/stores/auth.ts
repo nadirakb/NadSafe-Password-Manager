@@ -12,6 +12,8 @@ export interface AuthUser {
     pCost?: number;
     iterations?: number;
   };
+  /** Base64-encoded DER public key — cached after login for org operations. */
+  publicKey?: string;
 }
 
 interface AuthState {
@@ -25,6 +27,10 @@ interface AuthState {
   encryptedUserKey: string | null;
   /** Encrypted RSA private key (EncString). Needed for org key operations. */
   encryptedPrivateKey: string | null;
+
+  /** True when user's org requires 2FA but they logged in without it. */
+  requires2FASetup: boolean;
+  setRequires2FASetup: (v: boolean) => void;
 
   setServerUrl: (url: string) => void;
   login: (
@@ -50,6 +56,9 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       encryptedUserKey: null,
       encryptedPrivateKey: null,
+      requires2FASetup: false,
+
+      setRequires2FASetup: (v) => set({ requires2FASetup: v }),
 
       setServerUrl: (url) => set({ serverUrl: url.replace(/\/$/, "") }),
 
@@ -77,6 +86,7 @@ export const useAuthStore = create<AuthState>()(
           refreshToken: null,
           encryptedUserKey: null,
           encryptedPrivateKey: null,
+          requires2FASetup: false,
         }),
     }),
     {

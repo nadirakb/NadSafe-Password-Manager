@@ -12,24 +12,23 @@ export function TotpDisplay({ secret }: Props) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function refresh() {
-    try {
-      const c = await generateTotp(secret);
-      setCode(c);
-      setError(null);
-    } catch {
-      setError("Invalid TOTP secret");
-    }
-  }
-
   useEffect(() => {
-    refresh();
+    let active = true;
+    async function init() {
+      try {
+        const c = await generateTotp(secret);
+        if (active) { setCode(c); setError(null); }
+      } catch {
+        if (active) setError("Invalid TOTP secret");
+      }
+    }
+    void init();
     const interval = setInterval(() => {
       const s = totpSecondsRemaining();
-      setSeconds(s);
-      if (s === 30) refresh(); // new window started
+      if (active) setSeconds(s);
+      if (s === 30 && active) void init(); // new 30s window
     }, 1000);
-    return () => clearInterval(interval);
+    return () => { active = false; clearInterval(interval); };
   }, [secret]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function copy() {

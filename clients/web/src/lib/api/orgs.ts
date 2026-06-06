@@ -188,6 +188,45 @@ export async function deleteCollection(
   return client.delete<void>(`/api/organizations/${orgId}/collections/${collectionId}`);
 }
 
+// ── Org policies ─────────────────────────────────────────────────────────────
+
+/** Bitwarden policy types. */
+export const PolicyType = {
+  TwoFactorAuthentication: 0,
+  MasterPassword: 1,
+  PasswordGenerator: 2,
+  SingleOrg: 3,
+  RequireSso: 4,
+  PersonalOwnership: 5,
+  DisableSend: 6,
+  SendOptions: 7,
+  ResetPassword: 8,
+  MaximumVaultTimeout: 9,
+  DisablePersonalVaultExport: 10,
+} as const;
+
+export interface PolicyResponse {
+  id: string;
+  organizationId: string;
+  type: number;       // PolicyType
+  data: Record<string, unknown> | null;
+  enabled: boolean;
+  object: string;
+}
+
+/**
+ * GET /api/policies — returns all policies across all orgs the authenticated user belongs to.
+ * Fails silently on 404/403 (user not in any org).
+ */
+export async function fetchUserPolicies(client: ApiClient): Promise<PolicyResponse[]> {
+  try {
+    const res = await client.get<{ data: PolicyResponse[] }>("/api/policies");
+    return res.data ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function listOrgEvents(
   client: ApiClient,
   orgId: string,

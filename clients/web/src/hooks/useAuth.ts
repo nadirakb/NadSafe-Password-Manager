@@ -1,10 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { clearSessionKey, setSessionUserKey, setSessionRsaKey } from "../stores/session";
 import { initApiClient } from "../lib/api/client";
-import { prelogin, loginWithPassword, register, getOrCreateDeviceId } from "../lib/api/auth";
+import { prelogin, loginWithPassword, register, getOrCreateDeviceId, TwoFactorRequiredError } from "../lib/api/auth";
 import { getTokenKey } from "../lib/api/types";
+import { fetchUserPolicies, PolicyType } from "../lib/api/orgs";
 import {
   deriveLoginKeys,
   generateUserKey,
@@ -41,7 +42,9 @@ async function restoreRsaKey(
   encryptedPrivateKey: string | null | undefined,
   userKey: import("../lib/crypto/types").SymKey,
 ): Promise<void> {
-  if (!encryptedPrivateKey || encryptedPrivateKey.startsWith("2.placeholder")) return;
+  // EncString format: "{type}.{iv}|{ciphertext}|{mac}" — must contain "|"
+  // Rejects null, empty, and legacy placeholder values (e.g. "2.placeholder")
+  if (!encryptedPrivateKey || !encryptedPrivateKey.includes("|")) return;
   try {
     const rsaKey = await decryptRsaPrivateKey(encryptedPrivateKey, userKey);
     setSessionRsaKey(rsaKey);
@@ -50,14 +53,28 @@ async function restoreRsaKey(
   }
 }
 
+interface PendingLogin {
+  cleanUrl: string;
+  email: string;
+  authHash: Uint8Array;
+  encKey: Uint8Array;
+  macKey: Uint8Array;
+  kdfParams: KdfParams;
+}
+
 export function useLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { setServerUrl, login } = useAuthStore();
+  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
+  const { setServerUrl, login, setRequires2FASetup } = useAuthStore();
   const navigate = useNavigate();
 
+  // Cache derived key material between the initial login and 2FA confirmation step
+  // (Argon2id is expensive; no reason to re-run it for the 2FA retry)
+  const pendingLogin = useRef<PendingLogin | null>(null);
+
   const doLogin = useCallback(
-    async (serverUrl: string, email: string, password: string) => {
+    async (serverUrl: string, email: string, password: string, twoFactorToken?: string) => {
       setLoading(true);
       setError(null);
       try {
@@ -65,13 +82,35 @@ export function useLogin() {
         setServerUrl(cleanUrl);
         const client = initApiClient(cleanUrl);
 
-        const preloginRes = await prelogin(client, email);
-        const kdfParams = serverKdfToParams(preloginRes);
+        // Reuse cached key material if this is the 2FA retry
+        let authHash: Uint8Array;
+        let encKey: Uint8Array;
+        let macKey: Uint8Array;
+        let kdfParams: KdfParams;
 
-        const { authHash, encKey, macKey } = await deriveLoginKeys(password, email, kdfParams);
+        if (twoFactorToken && pendingLogin.current?.cleanUrl === cleanUrl) {
+          ({ authHash, encKey, macKey, kdfParams } = pendingLogin.current);
+        } else {
+          const preloginRes = await prelogin(client, email);
+          kdfParams = serverKdfToParams(preloginRes);
+          ({ authHash, encKey, macKey } = await deriveLoginKeys(password, email, kdfParams));
+        }
 
         const deviceId = getOrCreateDeviceId();
-        const tokenRes = await loginWithPassword(client, email, authHash, deviceId);
+        let tokenRes;
+        try {
+          tokenRes = await loginWithPassword(client, email, authHash, deviceId, twoFactorToken);
+        } catch (err) {
+          if (err instanceof TwoFactorRequiredError) {
+            // Cache key material; show TOTP input
+            pendingLogin.current = { cleanUrl, email, authHash, encKey, macKey, kdfParams };
+            setNeedsTwoFactor(true);
+            return;
+          }
+          throw err;
+        }
+        pendingLogin.current = null;
+        setNeedsTwoFactor(false);
         client.setToken(tokenRes.access_token);
 
         const encUserKey = getTokenKey(tokenRes);
@@ -101,16 +140,26 @@ export function useLogin() {
         );
 
         navigate("/vault");
+
+        // Check org 2FA policy: if any org requires 2FA and user didn't use it, flag it.
+        // Non-blocking — fires after navigation (server won't block login either).
+        fetchUserPolicies(client).then((policies) => {
+          const needs2FA = policies.some(
+            (p) => p.type === PolicyType.TwoFactorAuthentication && p.enabled,
+          );
+          // If org requires 2FA but the user logged in without 2FA prompt, they haven't set it up.
+          setRequires2FASetup(needs2FA && !twoFactorToken);
+        }).catch(() => null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Login failed");
       } finally {
         setLoading(false);
       }
     },
-    [login, setServerUrl, navigate],
+    [login, setServerUrl, navigate, setRequires2FASetup],
   );
 
-  return { doLogin, loading, error };
+  return { doLogin, loading, error, needsTwoFactor, setNeedsTwoFactor };
 }
 
 export function useRegister() {
@@ -180,9 +229,14 @@ export function useRegister() {
           encryptedPrivateKey,
         );
 
-        // Generate recovery entropy — shown to user before navigating to vault
-        const { generateRecoveryEntropy } = await import("../lib/crypto/recovery");
+        // Generate recovery entropy; wrap user key with it; persist to localStorage
+        // (device-local — recovery only works on same device unless user notes the phrase)
+        const { generateRecoveryEntropy, wrapUserKeyWithRecovery } =
+          await import("../lib/crypto/recovery");
         const entropy = generateRecoveryEntropy();
+        const wrappedRecoveryKey = await wrapUserKeyWithRecovery(userKey, entropy);
+        const rkStorageKey = `ns_rk:${cleanUrl}|${email}`;
+        localStorage.setItem(rkStorageKey, wrappedRecoveryKey);
         setRecoveryEntropy(entropy);
         // Navigation happens after user dismisses recovery phrase modal
       } catch (err) {

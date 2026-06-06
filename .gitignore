@@ -1,6 +1,8 @@
 # Rust
 target/
-Cargo.lock
+# wasm-pack output
+crates/crypto-core/pkg/
+# Cargo.lock: committed for binary apps (desktop) — do NOT gitignore for applications
 
 # Node
 node_modules/

@@ -140,3 +140,21 @@
   border-radius: 2px;
   transition: width var(--transition-base), background var(--transition-base);
 }
+
+.twoFactorBanner {
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-primary-subtle, rgba(79,110,247,0.08));
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-bottom: var(--space-4);
+  text-align: center;
+}
+
+.twoFactorHint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+}

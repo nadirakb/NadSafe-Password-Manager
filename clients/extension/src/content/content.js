@@ -7,6 +7,9 @@
  *              → relay UNLOCK/PUSH_ITEMS to background service worker
  */
 
+// Polyfill: Firefox exposes `browser`, Chrome exposes `chrome`.
+const ext = (typeof browser !== "undefined" ? browser : chrome);
+
 const AUTOFILL_ATTR = "data-nadsafe-autofill";
 const BRIDGE_ORIGIN_ALLOW_ANY = true; // dev mode: allow any origin; prod: restrict to serverUrl
 
@@ -21,7 +24,7 @@ window.addEventListener("message", (event) => {
   switch (type) {
     case "PUSH_SESSION":
       // Web app sends unlock credentials + decrypted items
-      chrome.runtime.sendMessage({
+      ext.runtime.sendMessage({
         type: "UNLOCK",
         ...payload,
       }, (res) => {
@@ -36,7 +39,7 @@ window.addEventListener("message", (event) => {
 
     case "PUSH_ITEMS":
       // Web app pushes pre-decrypted items for autofill
-      chrome.runtime.sendMessage({
+      ext.runtime.sendMessage({
         type: "STORE_ITEMS",
         items: payload.items,
       });
@@ -47,7 +50,7 @@ window.addEventListener("message", (event) => {
       window.postMessage({
         source: "nadsafe-extension",
         type: "PONG",
-        version: chrome.runtime.getManifest().version,
+        version: ext.runtime.getManifest().version,
       }, "*");
       break;
   }
@@ -82,10 +85,10 @@ async function offerAutofill() {
   const loginForms = findLoginForms();
   if (loginForms.length === 0) return;
 
-  const status = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
+  const status = await ext.runtime.sendMessage({ type: "GET_STATUS" });
   if (status?.locked) return;
 
-  const result = await chrome.runtime.sendMessage({
+  const result = await ext.runtime.sendMessage({
     type: "AUTOFILL_QUERY",
     url: location.href,
   });
@@ -202,9 +205,9 @@ function showMatchDropdown(btn, matches, usernameInput, passwordInput) {
 }
 
 // Listen for AUTOFILL message from popup
-chrome.runtime.onMessage.addListener((message) => {
+ext.runtime.onMessage.addListener((message) => {
   if (message.type === "AUTOFILL") {
-    chrome.runtime.sendMessage({ type: "GET_ITEMS" }, (res) => {
+    ext.runtime.sendMessage({ type: "GET_ITEMS" }, (res) => {
       const item = res?.items?.find((i) => i.id === message.itemId);
       if (!item?.login) return;
       const forms = findLoginForms();

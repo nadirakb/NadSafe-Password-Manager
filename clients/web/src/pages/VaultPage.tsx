@@ -1,8 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useVaultStore, type VaultItem, type ItemType } from "../stores/vault";
 import { useVaultSync } from "../hooks/useVaultSync";
 import { TotpDisplay } from "../components/TotpDisplay";
 import { ItemModal } from "../components/ItemModal";
+import { useAuthStore } from "../stores/auth";
+import { clearSessionKey } from "../stores/session";
 import styles from "./VaultPage.module.css";
 
 const MOCK_ITEMS: VaultItem[] = [
@@ -319,12 +321,42 @@ export function VaultPage() {
     selectedFolderId, selectedCollectionId, folders, collections,
   } = useVaultStore();
   const { doSync, error: syncError } = useVaultSync();
+  const { lock, requires2FASetup, serverUrl } = useAuthStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!lastSynced) doSync();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyboard shortcuts: Ctrl+L = lock, Ctrl+K = search, Esc = close modal
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Ctrl+L — lock vault
+    if ((e.ctrlKey || e.metaKey) && e.key === "l") {
+      e.preventDefault();
+      clearSessionKey();
+      lock();
+      return;
+    }
+    // Ctrl+K — focus search
+    if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+      e.preventDefault();
+      searchRef.current?.focus();
+      searchRef.current?.select();
+      return;
+    }
+    // Esc — close open modal
+    if (e.key === "Escape") {
+      if (showAddModal) { setShowAddModal(false); return; }
+      if (showEditModal) { setShowEditModal(false); return; }
+    }
+  }, [lock, showAddModal, showEditModal]);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
 
   // Show mocks only before first sync (UI preview). After sync: show real items or empty.
   const allItems = storeItems.length > 0 ? storeItems : lastSynced !== null ? [] : MOCK_ITEMS;
@@ -356,11 +388,29 @@ export function VaultPage() {
 
   return (
     <>
+      {requires2FASetup && (
+        <div style={{
+          background: "var(--color-warning, #fef3c7)",
+          borderBottom: "1px solid var(--color-warning-border, #f59e0b)",
+          padding: "10px 20px",
+          fontSize: "var(--font-size-sm)",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+        }}>
+          ⚠️ Your organization requires two-factor authentication.
+          {" "}
+          <a href={`${serverUrl}/#/settings/security/two-factor`} target="_blank" rel="noopener noreferrer"
+            style={{ color: "var(--color-primary)", fontWeight: 600 }}>
+            Set up 2FA in the web vault ↗
+          </a>
+        </div>
+      )}
       <div className={styles.page}>
         {/* List */}
         <div className={styles.list}>
           <div className={styles.listHeader}>
-            <input className={styles.searchInput} type="search" placeholder="Search vault…"
+            <input ref={searchRef} className={styles.searchInput} type="search" placeholder="Search vault… (⌘K)"
               value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             <button className={styles.addBtn} onClick={() => setShowAddModal(true)} title="Add item">+</button>
           </div>

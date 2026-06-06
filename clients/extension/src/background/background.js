@@ -8,37 +8,43 @@
  *   AUTOFILL_QUERY { url } → { matches: [{id, name, username, password}] }
  *   GET_ITEMS    {} → { items: VaultItem[] }
  *   SYNC         {} → { ok, count }
+ *
+ * Firefox compat: use globalThis.browser when available (Firefox), fall back to chrome.
  */
+
+// Polyfill: Firefox exposes `browser`, Chrome exposes `chrome`.
+// Both support the same MV3 API surface for storage.session, runtime, alarms.
+const ext = (typeof browser !== "undefined" ? browser : chrome);
 
 const LOCK_ALARM = "nadsafe-autolock";
 const DEFAULT_LOCK_MINUTES = 15;
 
 // ─── Alarm / lock ─────────────────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.session.set({ locked: true });
+ext.runtime.onInstalled.addListener(() => {
+  ext.storage.session.set({ locked: true });
   scheduleLock(DEFAULT_LOCK_MINUTES);
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+ext.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === LOCK_ALARM) lockVault();
 });
 
 function lockVault() {
-  chrome.storage.session.set({ locked: true, sessionKey: null, items: null });
+  ext.storage.session.set({ locked: true, sessionKey: null, items: null });
 }
 
 function scheduleLock(minutes) {
-  chrome.alarms.create(LOCK_ALARM, { delayInMinutes: minutes });
+  ext.alarms.create(LOCK_ALARM, { delayInMinutes: minutes });
 }
 
 function resetLockAlarm() {
-  chrome.alarms.clear(LOCK_ALARM, () => scheduleLock(DEFAULT_LOCK_MINUTES));
+  ext.alarms.clear(LOCK_ALARM, () => scheduleLock(DEFAULT_LOCK_MINUTES));
 }
 
 // ─── Message handler ──────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
     case "UNLOCK":
       handleUnlock(message).then(sendResponse).catch((err) => sendResponse({ ok: false, error: String(err) }));
@@ -50,7 +56,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
 
     case "GET_STATUS":
-      chrome.storage.session.get(["locked"], (result) => {
+      ext.storage.session.get(["locked"], (result) => {
         sendResponse({ locked: result.locked ?? true });
       });
       return true;
@@ -69,7 +75,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case "STORE_ITEMS":
       // Web app pushes pre-decrypted items via content script bridge
-      chrome.storage.session.set({ items: message.items, locked: false });
+      ext.storage.session.set({ items: message.items, locked: false });
       sendResponse({ ok: true, count: message.items?.length ?? 0 });
       resetLockAlarm();
       break;
@@ -87,7 +93,7 @@ async function handleUnlock({ email, passwordHash, serverUrl, accessToken, encry
   }
 
   // Store token + server for API calls
-  await chrome.storage.session.set({
+  await ext.storage.session.set({
     locked: false,
     accessToken,
     serverUrl: serverUrl ?? "",
@@ -108,7 +114,7 @@ async function handleUnlock({ email, passwordHash, serverUrl, accessToken, encry
 // ─── Sync vault ───────────────────────────────────────────────────────────────
 
 async function handleSync() {
-  const session = await chrome.storage.session.get([
+  const session = await ext.storage.session.get([
     "locked", "accessToken", "serverUrl",
   ]);
 
@@ -127,7 +133,7 @@ async function handleSync() {
 
     // Store raw (encrypted) ciphers — decryption happens in content script
     // or popup which has access to WebCrypto and hash-wasm
-    await chrome.storage.session.set({ rawCiphers: data.ciphers ?? [] });
+    await ext.storage.session.set({ rawCiphers: data.ciphers ?? [] });
 
     return { ok: true, count: (data.ciphers ?? []).length };
   } catch (err) {
@@ -138,7 +144,7 @@ async function handleSync() {
 // ─── Get cached items (already decrypted by popup) ────────────────────────────
 
 async function handleGetItems() {
-  const session = await chrome.storage.session.get(["locked", "items"]);
+  const session = await ext.storage.session.get(["locked", "items"]);
   if (session.locked) return { items: [] };
   return { items: session.items ?? [] };
 }
@@ -146,7 +152,7 @@ async function handleGetItems() {
 // ─── Autofill: match URL against cached items ─────────────────────────────────
 
 async function handleAutofillQuery(url) {
-  const session = await chrome.storage.session.get(["locked", "items"]);
+  const session = await ext.storage.session.get(["locked", "items"]);
   if (session.locked || !session.items) return { matches: [] };
 
   let hostname = "";

@@ -14,29 +14,61 @@ export async function prelogin(
   );
 }
 
-/** Step 2: exchange auth hash for tokens. */
+/** Thrown when server requires a 2FA token before completing login. */
+export class TwoFactorRequiredError extends Error {
+  /** Bitmask of available providers: 0=TOTP, 3=Duo, 4=YubiKey, 7=WebAuthn */
+  providers: number[];
+  constructor(providers: number[]) {
+    super("Two-factor authentication required");
+    this.name = "TwoFactorRequiredError";
+    this.providers = providers;
+  }
+}
+
+/** Step 2: exchange auth hash for tokens. Throws TwoFactorRequiredError when 2FA is needed. */
 export async function loginWithPassword(
   client: ApiClient,
   email: string,
   authHashBytes: Uint8Array,
   deviceId: string,
+  twoFactorToken?: string,
+  twoFactorProvider = 0, // 0 = TOTP authenticator app
 ): Promise<TokenResponse> {
   const passwordHash = toB64(authHashBytes);
 
-  return client.post<TokenResponse>(
-    "/identity/connect/token",
-    {
-      grant_type: "password",
-      username: email,
-      password: passwordHash,
-      scope: "api offline_access",
-      client_id: "web",
-      deviceType: "9", // WebVault
-      deviceIdentifier: deviceId,
-      deviceName: "NadSafe Web",
-    },
-    { form: true, noAuth: true },
-  );
+  const body: Record<string, string> = {
+    grant_type: "password",
+    username: email,
+    password: passwordHash,
+    scope: "api offline_access",
+    client_id: "web",
+    deviceType: "9", // WebVault
+    deviceIdentifier: deviceId,
+    deviceName: "NadSafe Web",
+  };
+
+  if (twoFactorToken) {
+    body.twoFactorToken = twoFactorToken;
+    body.twoFactorProvider = String(twoFactorProvider);
+    body.twoFactorRemember = "0";
+  }
+
+  try {
+    return await client.post<TokenResponse>(
+      "/identity/connect/token",
+      body,
+      { form: true, noAuth: true },
+    );
+  } catch (err) {
+    // Vaultwarden returns 400 with TwoFactorProviders when 2FA is required
+    if (err instanceof Error && err.message.includes("Two factor required")) {
+      throw new TwoFactorRequiredError([0]); // default to TOTP
+    }
+    // Parse provider list from error response if available
+    const raw = (err as { providers?: number[] }).providers;
+    if (Array.isArray(raw)) throw new TwoFactorRequiredError(raw);
+    throw err;
+  }
 }
 
 /** Register a new account.

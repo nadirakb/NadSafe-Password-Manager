@@ -11,7 +11,7 @@ interface PolicySetting {
   data?: Record<string, unknown>;
 }
 
-interface OrgPolicies {
+interface OrgPoliciesState {
   /** Minimum password strength (0-4: weak → very strong). */
   passwordStrength: PolicySetting & { data: { minScore: number } };
   /** Require 2FA for org members. */
@@ -24,7 +24,7 @@ interface OrgPolicies {
   maxInactivityTimeout: PolicySetting & { data: { maxMinutes: number } };
 }
 
-const defaultPolicies: OrgPolicies = {
+const defaultPolicies: OrgPoliciesState = {
   passwordStrength: { enabled: false, data: { minScore: 3 } },
   twoFactorAuthentication: { enabled: false },
   disablePersonalVaultExport: { enabled: false },
@@ -49,7 +49,7 @@ const POLICY_TYPES: Record<string, number> = {
 
 export function OrgPolicies() {
   const { orgId } = useOutletContext<Ctx>();
-  const [policies, setPolicies] = useState<OrgPolicies>(defaultPolicies);
+  const [policies, setPolicies] = useState<OrgPoliciesState>(defaultPolicies);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +142,7 @@ export function OrgPolicies() {
     }
   }
 
-  function toggle(key: keyof OrgPolicies) {
+  function toggle(key: keyof OrgPoliciesState) {
     setPolicies((prev) => ({
       ...prev,
       [key]: { ...prev[key], enabled: !prev[key].enabled },

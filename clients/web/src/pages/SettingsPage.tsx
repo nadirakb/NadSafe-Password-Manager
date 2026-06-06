@@ -1,6 +1,8 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useAuthStore } from "../stores/auth";
 import { getApiClient } from "../lib/api/client";
+import { getVaultTimeoutMinutes, setVaultTimeoutMinutes } from "../hooks/useVaultTimeout";
+import { passwordStrength } from "../lib/password-strength";
 import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getWebAuthnCredentials, registerWebAuthn, deleteWebAuthn } from "../lib/api/account";
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
@@ -10,6 +12,54 @@ import { buildExportJson, buildExportCsv, downloadJson, downloadCsv } from "../l
 import { checkExtensionInstalled, pushItemsToExtension } from "../lib/extension-bridge";
 import { TotpDisplay } from "../components/TotpDisplay";
 import styles from "./Settings.module.css";
+
+// ─── Vault Timeout ───────────────────────────────────────────────────────────
+
+const TIMEOUT_OPTIONS = [
+  { label: "1 minute", value: 1 },
+  { label: "5 minutes", value: 5 },
+  { label: "15 minutes (default)", value: 15 },
+  { label: "30 minutes", value: 30 },
+  { label: "1 hour", value: 60 },
+  { label: "4 hours", value: 240 },
+  { label: "Never", value: 0 },
+];
+
+function VaultTimeoutSection() {
+  const [minutes, setMinutes] = useState(getVaultTimeoutMinutes);
+  const [saved, setSaved] = useState(false);
+
+  function handleChange(v: number) {
+    setMinutes(v);
+    setVaultTimeoutMinutes(v);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>Vault timeout</h2>
+      <div className={styles.row}>
+        <div>
+          <span className={styles.rowLabel}>Auto-lock after inactivity</span>
+          <p className={styles.rowDesc}>Lock the vault automatically after the chosen idle period.</p>
+        </div>
+        <div className={styles.rowActions}>
+          <select
+            className={styles.select}
+            value={minutes}
+            onChange={(e) => handleChange(Number(e.target.value))}
+          >
+            {TIMEOUT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          {saved && <span className={styles.success}>Saved</span>}
+        </div>
+      </div>
+    </section>
+  );
+}
 
 // ─── Change Master Password ───────────────────────────────────────────────────
 
@@ -22,10 +72,12 @@ function ChangeMasterPassword() {
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const strength = passwordStrength(newPw);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (newPw !== confirmPw) { setError("New passwords do not match"); return; }
-    if (newPw.length < 12) { setError("New password must be at least 12 characters"); return; }
+    if (strength.score < 2) { setError("New password is too weak — add length, mixed case, numbers or symbols"); return; }
     if (!user?.email || !encryptedUserKey) { setError("Account data missing — re-login required"); return; }
     const userKey = getSessionUserKey();
     if (!userKey) { setError("Vault is locked — unlock first"); return; }
@@ -79,6 +131,14 @@ function ChangeMasterPassword() {
           <label className={styles.formLabel}>New password</label>
           <input type="password" className={styles.formInput} value={newPw}
             onChange={(e) => setNewPw(e.target.value)} autoComplete="new-password" required />
+          {newPw && (
+            <div style={{ marginTop: "var(--space-1)" }}>
+              <div style={{ height: 4, borderRadius: 2, background: "var(--color-border)", overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 2, width: `${(strength.score / 5) * 100}%`, background: strength.color, transition: "width 0.2s, background 0.2s" }} />
+              </div>
+              <span style={{ fontSize: "var(--font-size-xs)", color: strength.color }}>{strength.label}</span>
+            </div>
+          )}
         </div>
         <div className={styles.formRow}>
           <label className={styles.formLabel}>Confirm new password</label>
@@ -603,6 +663,7 @@ export function SettingsPage() {
           )}
         </section>
 
+        <VaultTimeoutSection />
         <ChangeMasterPassword />
         <TwoFactorSetup />
         <WebAuthnSection />

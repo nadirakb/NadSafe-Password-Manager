@@ -92,6 +92,9 @@ jobs:
             clients/extension/node_modules
           key: node-modules-${{ hashFiles('package-lock.json') }}
 
+      - name: lint
+        run: npm run lint --workspace=clients/web
+
       - name: typecheck
         run: npm run typecheck --workspace=clients/web
 
