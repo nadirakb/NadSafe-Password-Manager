@@ -79,3 +79,49 @@ export async function disableTotp(
 export async function getProfile(client: ApiClient): Promise<ProfileResponse> {
   return client.get<ProfileResponse>("/api/accounts/profile");
 }
+
+// ─── WebAuthn (FIDO2) ─────────────────────────────────────────────────────────
+
+export interface WebAuthnCredential {
+  id: string;
+  name: string;
+  supportsPrf: boolean;
+}
+
+export interface WebAuthnSetupResponse {
+  credentials: WebAuthnCredential[];
+  /** PublicKeyCredentialCreationOptions as base64 JSON */
+  options?: string;
+}
+
+export interface WebAuthnDeleteRequest {
+  masterPasswordHash: string;
+  id: number;
+}
+
+/** Get WebAuthn key list + creation options for new key enrollment. */
+export async function getWebAuthnCredentials(
+  client: ApiClient,
+): Promise<WebAuthnSetupResponse> {
+  return client.get<WebAuthnSetupResponse>("/api/two-factor/get-webauthn");
+}
+
+/** Register a WebAuthn credential. */
+export async function registerWebAuthn(
+  client: ApiClient,
+  body: {
+    masterPasswordHash: string;
+    token: string; // base64-encoded PublicKeyCredential JSON
+    name: string;
+  },
+): Promise<WebAuthnSetupResponse> {
+  return client.post<WebAuthnSetupResponse>("/api/two-factor/webauthn", body);
+}
+
+/** Delete a WebAuthn credential. */
+export async function deleteWebAuthn(
+  client: ApiClient,
+  req: WebAuthnDeleteRequest,
+): Promise<void> {
+  return client.post<void>("/api/two-factor/webauthn/delete", req);
+}

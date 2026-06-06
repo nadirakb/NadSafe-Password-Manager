@@ -19,14 +19,31 @@ services:
       LOG_LEVEL: "warn"
       EXTENDED_LOGGING: "false"
 
-      # Domain (needed for correct CORS / cookies)
+      # Domain (needed for correct CORS / cookies + WebAuthn RP ID)
       DOMAIN: "http://localhost:8000"
 
-      # Enable WebSocket for live sync
+      # Enable WebSocket for live sync notifications
       WEBSOCKET_ENABLED: "true"
 
-      # KDF floor — enforce Argon2id minimum in production
-      # KDF_ALGORITHM: "1"  # 1 = Argon2id
+      # KDF floor — enforce Argon2id minimum
+      # KDF_ALGORITHM: "1"  # 1 = Argon2id, 0 = PBKDF2
+
+      # 2FA / WebAuthn
+      # AUTHENTICATOR_DISABLE_TIME_DRIFT: "false"
+
+      # Rate limiting (requires nginx/Caddy in front in production)
+      # IP_HEADER: "X-Real-IP"
+
+      # Push notifications (optional — sign up at https://bitwarden.com/host/)
+      # PUSH_ENABLED: "true"
+      # PUSH_INSTALLATION_ID: ""
+      # PUSH_INSTALLATION_KEY: ""
 
 volumes:
   vaultwarden-data:
+
+---
+# Production compose override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires: ADMIN_TOKEN env var, certificates in ./certs/ or Caddy/Traefik in front

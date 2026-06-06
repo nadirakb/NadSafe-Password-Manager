@@ -1,7 +1,7 @@
 import { useState, useEffect, type FormEvent } from "react";
 import { useAuthStore } from "../stores/auth";
 import { getApiClient } from "../lib/api/client";
-import { changePassword, getTotpSetupKey, enableTotp, disableTotp } from "../lib/api/account";
+import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getWebAuthnCredentials, registerWebAuthn, deleteWebAuthn } from "../lib/api/account";
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
 import { deriveLoginKeys, wrapUserKey } from "../lib/crypto/key-hierarchy";
@@ -315,6 +315,184 @@ function ExportSection() {
   );
 }
 
+// ─── WebAuthn / FIDO2 ─────────────────────────────────────────────────────────
+
+function WebAuthnSection() {
+  const { user } = useAuthStore();
+  const [credentials, setCredentials] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [registering, setRegistering] = useState(false);
+  const [keyName, setKeyName] = useState("");
+  const [masterPw, setMasterPw] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  useEffect(() => {
+    getWebAuthnCredentials(getApiClient())
+      .then((res) => setCredentials(res.credentials ?? []))
+      .catch(() => setCredentials([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleRegister(e: FormEvent) {
+    e.preventDefault();
+    if (!user?.email) return;
+    const kdfParams = user.kdfType === "argon2id"
+      ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
+      : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
+
+    setRegistering(true);
+    setError(null);
+    try {
+      const { authHash } = await deriveLoginKeys(masterPw, user.email, kdfParams);
+
+      // Get WebAuthn creation options from server
+      const setup = await getWebAuthnCredentials(getApiClient());
+      if (!setup.options) throw new Error("Server did not return WebAuthn creation options");
+
+      const opts = JSON.parse(atob(setup.options)) as PublicKeyCredentialCreationOptions;
+      // Convert base64url challenge/user.id to ArrayBuffer
+      opts.challenge = base64UrlToBuffer(opts.challenge as unknown as string);
+      if (opts.user?.id) opts.user.id = base64UrlToBuffer(opts.user.id as unknown as string);
+
+      const credential = await navigator.credentials.create({
+        publicKey: opts,
+      }) as PublicKeyCredential | null;
+
+      if (!credential) throw new Error("WebAuthn credential creation cancelled");
+
+      const res = credential.response as AuthenticatorAttestationResponse;
+      const tokenPayload = btoa(JSON.stringify({
+        id: credential.id,
+        rawId: bufferToBase64Url(credential.rawId),
+        response: {
+          attestationObject: bufferToBase64Url(res.attestationObject),
+          clientDataJSON: bufferToBase64Url(res.clientDataJSON),
+        },
+        type: credential.type,
+      }));
+
+      const result = await registerWebAuthn(getApiClient(), {
+        masterPasswordHash: toB64(authHash),
+        token: tokenPayload,
+        name: keyName || "Security key",
+      });
+
+      setCredentials(result.credentials ?? []);
+      setSuccess("Security key registered successfully");
+      setShowForm(false);
+      setKeyName("");
+      setMasterPw("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed");
+    } finally {
+      setRegistering(false);
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Remove security key "${name}"?`)) return;
+    if (!user?.email) return;
+    const pw = prompt("Enter your master password to confirm:");
+    if (!pw) return;
+
+    const kdfParams = user.kdfType === "argon2id"
+      ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
+      : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
+
+    try {
+      const { authHash } = await deriveLoginKeys(pw, user.email, kdfParams);
+      await deleteWebAuthn(getApiClient(), { masterPasswordHash: toB64(authHash), id: parseInt(id) });
+      setCredentials((prev) => prev.filter((c) => c.id !== id));
+      setSuccess("Security key removed");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+    }
+  }
+
+  const webAuthnSupported = typeof window !== "undefined" && !!window.PublicKeyCredential;
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>Security keys (FIDO2 / WebAuthn)</h2>
+      {loading && <div className={styles.row}><p className={styles.rowDesc}>Loading…</p></div>}
+
+      {!webAuthnSupported && (
+        <div className={styles.row}>
+          <p className={styles.rowDesc}>WebAuthn not supported in this browser.</p>
+        </div>
+      )}
+
+      {webAuthnSupported && !loading && (
+        <>
+          {credentials.length === 0 && !showForm && (
+            <div className={styles.row}>
+              <p className={styles.rowDesc}>No security keys registered. Add a hardware key (YubiKey, Passkey, etc.) for stronger 2FA.</p>
+              <button className={styles.btnSecondary} onClick={() => setShowForm(true)}>+ Add security key</button>
+            </div>
+          )}
+
+          {credentials.map((c) => (
+            <div key={c.id} className={styles.row}>
+              <div>
+                <span className={styles.rowValue}>🔑 {c.name}</span>
+              </div>
+              <button className={styles.btnDanger} onClick={() => handleDelete(c.id, c.name)}>Remove</button>
+            </div>
+          ))}
+
+          {credentials.length > 0 && (
+            <div className={styles.row}>
+              <span />
+              <button className={styles.btnSecondary} onClick={() => setShowForm(true)}>+ Add another key</button>
+            </div>
+          )}
+
+          {showForm && (
+            <form onSubmit={handleRegister} className={styles.form}>
+              <div className={styles.formRow}>
+                <label className={styles.formLabel}>Key name</label>
+                <input className={styles.formInput} value={keyName}
+                  onChange={(e) => setKeyName(e.target.value)} placeholder="YubiKey 5" />
+              </div>
+              <div className={styles.formRow}>
+                <label className={styles.formLabel}>Master password (to confirm)</label>
+                <input type="password" className={styles.formInput} value={masterPw}
+                  onChange={(e) => setMasterPw(e.target.value)} required />
+              </div>
+              {error && <p className={styles.error}>{error}</p>}
+              <div className={styles.rowActions}>
+                <button type="button" className={styles.btnSecondary} onClick={() => setShowForm(false)}>Cancel</button>
+                <button type="submit" className={styles.btnPrimary} disabled={registering}>
+                  {registering ? "Tap your key…" : "Register key"}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {success && <p className={styles.success} style={{ padding: "0 var(--space-5)" }}>{success}</p>}
+        </>
+      )}
+    </section>
+  );
+}
+
+function base64UrlToBuffer(b64url: string): ArrayBuffer {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr.buffer;
+}
+
+function bufferToBase64Url(buf: ArrayBuffer): string {
+  const arr = new Uint8Array(buf);
+  let bin = "";
+  arr.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
 // ─── Extension bridge ─────────────────────────────────────────────────────────
 
 function ExtensionSection() {
@@ -427,6 +605,7 @@ export function SettingsPage() {
 
         <ChangeMasterPassword />
         <TwoFactorSetup />
+        <WebAuthnSection />
         <ExportSection />
         <ExtensionSection />
 
