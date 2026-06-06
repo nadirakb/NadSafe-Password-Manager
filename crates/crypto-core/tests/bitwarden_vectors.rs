@@ -26,18 +26,30 @@ use nadsafe_crypto_core::{
 fn pbkdf2_5k_master_key_vector() {
     let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 5000 });
     let key = derive_master_key(b"masterpassword", "user@example.com", &kdf).unwrap();
-    let expected = hex::decode("562289f6883d1e80113da9767e2d2ecb611bec4e29ab5b3adf46cae7237f537c").unwrap();
-    assert_eq!(key.as_ref(), expected.as_slice(), "PBKDF2-5k master key mismatch");
+    let expected =
+        hex::decode("562289f6883d1e80113da9767e2d2ecb611bec4e29ab5b3adf46cae7237f537c").unwrap();
+    assert_eq!(
+        key.as_ref(),
+        expected.as_slice(),
+        "PBKDF2-5k master key mismatch"
+    );
 }
 
 /// PBKDF2-SHA256, 600000 iter (current Bitwarden default).
 /// password = "password", email = "user@example.com"
 #[test]
 fn pbkdf2_600k_master_key_vector() {
-    let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+    let kdf = Kdf::Pbkdf2(Pbkdf2Params {
+        iterations: 600_000,
+    });
     let key = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
-    let expected = hex::decode("81be19a9c170df7152970ab88d3bef6de90595ed232b873a876869d68a780d68").unwrap();
-    assert_eq!(key.as_ref(), expected.as_slice(), "PBKDF2-600k master key mismatch");
+    let expected =
+        hex::decode("81be19a9c170df7152970ab88d3bef6de90595ed232b873a876869d68a780d68").unwrap();
+    assert_eq!(
+        key.as_ref(),
+        expected.as_slice(),
+        "PBKDF2-600k master key mismatch"
+    );
 }
 
 // ── Auth Hash Vectors ────────────────────────────────────────────────────────
@@ -49,27 +61,44 @@ fn pbkdf2_5k_auth_hash_vector() {
     let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 5000 });
     let master_key = derive_master_key(b"masterpassword", "user@example.com", &kdf).unwrap();
     let auth_hash = derive_auth_hash(&master_key, b"masterpassword");
-    let expected = hex::decode("76a315a2dfeca6addebd64dbb4eff6ca43b3e7ec7ac3689a2e0e776b044ed3aa").unwrap();
-    assert_eq!(auth_hash.as_ref(), expected.as_slice(), "Auth hash (5k) mismatch");
+    let expected =
+        hex::decode("76a315a2dfeca6addebd64dbb4eff6ca43b3e7ec7ac3689a2e0e776b044ed3aa").unwrap();
+    assert_eq!(
+        auth_hash.as_ref(),
+        expected.as_slice(),
+        "Auth hash (5k) mismatch"
+    );
 }
 
 /// Auth hash for 600k PBKDF2.
 #[test]
 fn pbkdf2_600k_auth_hash_vector() {
-    let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+    let kdf = Kdf::Pbkdf2(Pbkdf2Params {
+        iterations: 600_000,
+    });
     let master_key = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
     let auth_hash = derive_auth_hash(&master_key, b"password");
-    let expected = hex::decode("8c6072f953c004c637cbe3dd56063b8c296cc90847786470bd8152fa5ea37c7f").unwrap();
-    assert_eq!(auth_hash.as_ref(), expected.as_slice(), "Auth hash (600k) mismatch");
+    let expected =
+        hex::decode("8c6072f953c004c637cbe3dd56063b8c296cc90847786470bd8152fa5ea37c7f").unwrap();
+    assert_eq!(
+        auth_hash.as_ref(),
+        expected.as_slice(),
+        "Auth hash (600k) mismatch"
+    );
 }
 
 /// Auth hash must differ from master key (different domain separation).
 #[test]
 fn auth_hash_differs_from_master_key() {
-    let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+    let kdf = Kdf::Pbkdf2(Pbkdf2Params {
+        iterations: 600_000,
+    });
     let master_key = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
     let auth_hash = derive_auth_hash(&master_key, b"password");
-    assert_ne!(*master_key, auth_hash, "auth hash must differ from master key");
+    assert_ne!(
+        *master_key, auth_hash,
+        "auth hash must differ from master key"
+    );
 }
 
 // ── HKDF Stretch Vectors ─────────────────────────────────────────────────────
@@ -83,23 +112,45 @@ fn hkdf_stretch_5k_vector() {
     let master_key = derive_master_key(b"masterpassword", "user@example.com", &kdf).unwrap();
     let stretched = stretch_master_key(&master_key).unwrap();
 
-    let expected_enc = hex::decode("142d9e9fb476c290fa5454e301756662b813edccf26420852983dc9f20b33853").unwrap();
-    let expected_mac = hex::decode("1ea9fd1675992d9ccbbf5eead0bb45b8f044415bbe018130f483e3ee84624804").unwrap();
-    assert_eq!(&stretched[..32], expected_enc.as_slice(), "enc_key mismatch");
-    assert_eq!(&stretched[32..], expected_mac.as_slice(), "mac_key mismatch");
+    let expected_enc =
+        hex::decode("142d9e9fb476c290fa5454e301756662b813edccf26420852983dc9f20b33853").unwrap();
+    let expected_mac =
+        hex::decode("1ea9fd1675992d9ccbbf5eead0bb45b8f044415bbe018130f483e3ee84624804").unwrap();
+    assert_eq!(
+        &stretched[..32],
+        expected_enc.as_slice(),
+        "enc_key mismatch"
+    );
+    assert_eq!(
+        &stretched[32..],
+        expected_mac.as_slice(),
+        "mac_key mismatch"
+    );
 }
 
 /// HKDF stretch from PBKDF2-600k master key.
 #[test]
 fn hkdf_stretch_600k_vector() {
-    let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+    let kdf = Kdf::Pbkdf2(Pbkdf2Params {
+        iterations: 600_000,
+    });
     let master_key = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
     let stretched = stretch_master_key(&master_key).unwrap();
 
-    let expected_enc = hex::decode("4cd5a5f1b6326bd572de7c07a7e5674d013e404cc32077ef8f5eb4d2f5364759").unwrap();
-    let expected_mac = hex::decode("099fa1ff37a68dda11b0de6c10d3007e3c6d0f9fcf2b6c32154a45a0e1317538").unwrap();
-    assert_eq!(&stretched[..32], expected_enc.as_slice(), "enc_key mismatch");
-    assert_eq!(&stretched[32..], expected_mac.as_slice(), "mac_key mismatch");
+    let expected_enc =
+        hex::decode("4cd5a5f1b6326bd572de7c07a7e5674d013e404cc32077ef8f5eb4d2f5364759").unwrap();
+    let expected_mac =
+        hex::decode("099fa1ff37a68dda11b0de6c10d3007e3c6d0f9fcf2b6c32154a45a0e1317538").unwrap();
+    assert_eq!(
+        &stretched[..32],
+        expected_enc.as_slice(),
+        "enc_key mismatch"
+    );
+    assert_eq!(
+        &stretched[32..],
+        expected_mac.as_slice(),
+        "mac_key mismatch"
+    );
 }
 
 /// Stretch output is 64 bytes and enc / mac halves differ.
@@ -109,7 +160,11 @@ fn hkdf_stretch_produces_64_bytes() {
     let master_key = derive_master_key(b"pw", "a@b.com", &kdf).unwrap();
     let stretched = stretch_master_key(&master_key).unwrap();
     assert_eq!(stretched.len(), 64);
-    assert_ne!(&stretched[..32], &stretched[32..], "enc and mac halves must differ");
+    assert_ne!(
+        &stretched[..32],
+        &stretched[32..],
+        "enc and mac halves must differ"
+    );
 }
 
 // ── EncString Format Conformance ─────────────────────────────────────────────
@@ -132,15 +187,14 @@ fn enc_string_type2_roundtrip() {
 
     // IV segment must be base64 of exactly 16 bytes → 24 base64 chars
     let iv_b64 = parts[0].trim_start_matches("2.");
-    let iv_decoded = base64::engine::Engine::decode(
-        &base64::engine::general_purpose::STANDARD, iv_b64
-    ).unwrap();
+    let iv_decoded =
+        base64::engine::Engine::decode(&base64::engine::general_purpose::STANDARD, iv_b64).unwrap();
     assert_eq!(iv_decoded.len(), 16, "IV must be 16 bytes");
 
     // MAC segment must be base64 of exactly 32 bytes → 44 base64 chars
-    let mac_decoded = base64::engine::Engine::decode(
-        &base64::engine::general_purpose::STANDARD, parts[2]
-    ).unwrap();
+    let mac_decoded =
+        base64::engine::Engine::decode(&base64::engine::general_purpose::STANDARD, parts[2])
+            .unwrap();
     assert_eq!(mac_decoded.len(), 32, "MAC must be 32 bytes");
 
     // Full parse + decrypt round-trip
@@ -178,7 +232,11 @@ fn user_key_wrap_unwrap_cycle() {
     let mk = MasterKey(*raw);
     let (user_key, enc_user_key) = mk.generate_user_key().unwrap();
     let recovered = mk.decrypt_user_key(&enc_user_key).unwrap();
-    assert_eq!(user_key.raw_bytes(), recovered.raw_bytes(), "user key must survive wrap/unwrap");
+    assert_eq!(
+        user_key.raw_bytes(),
+        recovered.raw_bytes(),
+        "user key must survive wrap/unwrap"
+    );
 }
 
 /// User key must be 64 bytes (32 enc + 32 mac).
@@ -203,8 +261,8 @@ fn vault_item_encrypt_decrypt() {
         b"username",
         b"https://github.com",
         b"s3cr3t!",
-        b"",  // empty field must round-trip
-        &[0xFF; 1024],  // large binary
+        b"",           // empty field must round-trip
+        &[0xFF; 1024], // large binary
     ];
     for item in items {
         let enc = user_key.encrypt(item).unwrap();
@@ -260,10 +318,7 @@ fn wrong_key_rejected() {
         mac_key: [0x88u8; 32],
     };
     let enc = EncString::encrypt(b"secret", &sym).unwrap();
-    assert!(
-        enc.decrypt(&bad_sym).is_err(),
-        "wrong key must be rejected"
-    );
+    assert!(enc.decrypt(&bad_sym).is_err(), "wrong key must be rejected");
 }
 
 // ── Email Case Normalization ─────────────────────────────────────────────────

@@ -27,8 +27,7 @@ use crate::{
 /// Two separate expand calls with info="enc" and info="mac".
 pub fn stretch_master_key(master_key: &[u8; 32]) -> Result<Zeroizing<[u8; 64]>, CryptoError> {
     // from_prk skips extract, treating master_key directly as PRK.
-    let hk = Hkdf::<Sha256>::from_prk(master_key)
-        .map_err(|e| CryptoError::Kdf(e.to_string()))?;
+    let hk = Hkdf::<Sha256>::from_prk(master_key).map_err(|e| CryptoError::Kdf(e.to_string()))?;
     let mut stretched = Zeroizing::new([0u8; 64]);
     let mut enc_key = [0u8; 32];
     let mut mac_key = [0u8; 32];
@@ -87,7 +86,10 @@ impl UserKey {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
         if bytes.len() != 64 {
-            return Err(CryptoError::InvalidKeyLength { expected: 64, got: bytes.len() });
+            return Err(CryptoError::InvalidKeyLength {
+                expected: 64,
+                got: bytes.len(),
+            });
         }
         let mut arr = [0u8; 64];
         arr.copy_from_slice(bytes);
@@ -128,7 +130,10 @@ impl OrgKey {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
         if bytes.len() != 64 {
-            return Err(CryptoError::InvalidKeyLength { expected: 64, got: bytes.len() });
+            return Err(CryptoError::InvalidKeyLength {
+                expected: 64,
+                got: bytes.len(),
+            });
         }
         let mut arr = [0u8; 64];
         arr.copy_from_slice(bytes);
@@ -144,10 +149,7 @@ impl OrgKey {
     }
 
     /// RSA-OAEP-SHA256 encrypt the org key to a member's public key.
-    pub fn encrypt_to_member(
-        &self,
-        public_key_der: &[u8],
-    ) -> Result<Vec<u8>, CryptoError> {
+    pub fn encrypt_to_member(&self, public_key_der: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let pub_key = RsaPublicKey::from_public_key_der(public_key_der)
             .map_err(|e| CryptoError::Rsa(e.to_string()))?;
         let padding = Oaep::new::<Sha256>();
@@ -185,8 +187,8 @@ impl OrgKey {
 /// Generate an RSA-2048 key pair. Returns (DER-encoded private key, DER-encoded public key).
 pub fn generate_rsa_key_pair() -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
     let mut rng = rand::thread_rng();
-    let priv_key = RsaPrivateKey::new(&mut rng, 2048)
-        .map_err(|e| CryptoError::Rsa(e.to_string()))?;
+    let priv_key =
+        RsaPrivateKey::new(&mut rng, 2048).map_err(|e| CryptoError::Rsa(e.to_string()))?;
     let pub_key = priv_key.to_public_key();
 
     let priv_der = priv_key
@@ -205,10 +207,14 @@ pub fn generate_rsa_key_pair() -> Result<(Vec<u8>, Vec<u8>), CryptoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kdf::{derive_master_key, Kdf, Argon2idParams};
+    use crate::kdf::{derive_master_key, Argon2idParams, Kdf};
 
     fn master_key() -> MasterKey {
-        let kdf = Kdf::Argon2id(Argon2idParams { m_cost: 8192, t_cost: 1, p_cost: 1 });
+        let kdf = Kdf::Argon2id(Argon2idParams {
+            m_cost: 8192,
+            t_cost: 1,
+            p_cost: 1,
+        });
         let k = derive_master_key(b"password", "test@example.com", &kdf).unwrap();
         MasterKey(*k)
     }

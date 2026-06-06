@@ -16,7 +16,11 @@ pub fn generate_totp(secret_b32: &str, timestamp_secs: u64) -> Result<String, To
     let secret = base32_decode(secret_b32)?;
     let counter = timestamp_secs / DEFAULT_PERIOD;
     let code = hotp(&secret, counter, DEFAULT_DIGITS);
-    Ok(format!("{:0>width$}", code, width = DEFAULT_DIGITS as usize))
+    Ok(format!(
+        "{:0>width$}",
+        code,
+        width = DEFAULT_DIGITS as usize
+    ))
 }
 
 fn hotp(secret: &[u8], counter: u64, digits: u32) -> u32 {

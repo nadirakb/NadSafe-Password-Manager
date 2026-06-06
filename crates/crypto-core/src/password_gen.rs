@@ -1,7 +1,7 @@
 //! Password and passphrase generator.
 
-use rand::RngCore;
 use rand::seq::SliceRandom;
+use rand::RngCore;
 
 const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
@@ -77,15 +77,16 @@ pub fn generate_password(cfg: &PasswordConfig) -> Result<String, GenError> {
     // Build required characters first, then fill the rest randomly.
     let mut required: Vec<u8> = Vec::new();
 
-    let push_required = |pool: &[u8], count: usize, buf: &mut Vec<u8>, rng: &mut rand::rngs::ThreadRng| {
-        let pool = filter_ambiguous(pool, cfg.avoid_ambiguous);
-        for _ in 0..count {
-            if !pool.is_empty() {
-                let idx = random_usize(rng, pool.len());
-                buf.push(pool[idx]);
+    let push_required =
+        |pool: &[u8], count: usize, buf: &mut Vec<u8>, rng: &mut rand::rngs::ThreadRng| {
+            let pool = filter_ambiguous(pool, cfg.avoid_ambiguous);
+            for _ in 0..count {
+                if !pool.is_empty() {
+                    let idx = random_usize(rng, pool.len());
+                    buf.push(pool[idx]);
+                }
             }
-        }
-    };
+        };
 
     if cfg.uppercase {
         push_required(UPPERCASE, cfg.min_uppercase, &mut required, &mut rng);
@@ -117,7 +118,10 @@ fn filter_ambiguous(pool: &[u8], avoid: bool) -> Vec<u8> {
     if !avoid {
         return pool.to_vec();
     }
-    pool.iter().copied().filter(|b| !AMBIGUOUS.contains(b)).collect()
+    pool.iter()
+        .copied()
+        .filter(|b| !AMBIGUOUS.contains(b))
+        .collect()
 }
 
 fn random_usize(rng: &mut rand::rngs::ThreadRng, max: usize) -> usize {
@@ -167,7 +171,11 @@ mod tests {
     #[test]
     fn respects_length() {
         for len in [8, 16, 32, 64] {
-            let pw = generate_password(&PasswordConfig { length: len, ..Default::default() }).unwrap();
+            let pw = generate_password(&PasswordConfig {
+                length: len,
+                ..Default::default()
+            })
+            .unwrap();
             assert_eq!(pw.len(), len);
         }
     }
@@ -175,19 +183,35 @@ mod tests {
     #[test]
     fn uppercase_only() {
         let pw = generate_password(&PasswordConfig {
-            length: 20, uppercase: true, lowercase: false, numbers: false, symbols: false,
-            avoid_ambiguous: false, min_uppercase: 1, min_lowercase: 0, min_numbers: 0, min_special: 0,
-        }).unwrap();
+            length: 20,
+            uppercase: true,
+            lowercase: false,
+            numbers: false,
+            symbols: false,
+            avoid_ambiguous: false,
+            min_uppercase: 1,
+            min_lowercase: 0,
+            min_numbers: 0,
+            min_special: 0,
+        })
+        .unwrap();
         assert!(pw.chars().all(|c| c.is_uppercase()));
     }
 
     #[test]
     fn no_ambiguous() {
         let pw = generate_password(&PasswordConfig {
-            length: 100, avoid_ambiguous: true, ..Default::default()
-        }).unwrap();
+            length: 100,
+            avoid_ambiguous: true,
+            ..Default::default()
+        })
+        .unwrap();
         for ch in AMBIGUOUS {
-            assert!(!pw.contains(*ch as char), "found ambiguous char {}", *ch as char);
+            assert!(
+                !pw.contains(*ch as char),
+                "found ambiguous char {}",
+                *ch as char
+            );
         }
     }
 

@@ -66,12 +66,16 @@ pub fn parse_recovery_phrase(phrase: &str) -> Result<Mnemonic, CryptoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kdf::{derive_master_key, Kdf, Argon2idParams};
+    use crate::kdf::{derive_master_key, Argon2idParams, Kdf};
     use crate::keys::MasterKey;
 
     #[test]
     fn recovery_roundtrip() {
-        let kdf = Kdf::Argon2id(Argon2idParams { m_cost: 8192, t_cost: 1, p_cost: 1 });
+        let kdf = Kdf::Argon2id(Argon2idParams {
+            m_cost: 8192,
+            t_cost: 1,
+            p_cost: 1,
+        });
         let mk_bytes = derive_master_key(b"password", "user@test.com", &kdf).unwrap();
         let mk = MasterKey(*mk_bytes);
         let (user_key, _enc_user_key) = mk.generate_user_key().unwrap();
@@ -85,7 +89,11 @@ mod tests {
 
     #[test]
     fn wrong_phrase_fails() {
-        let kdf = Kdf::Argon2id(Argon2idParams { m_cost: 8192, t_cost: 1, p_cost: 1 });
+        let kdf = Kdf::Argon2id(Argon2idParams {
+            m_cost: 8192,
+            t_cost: 1,
+            p_cost: 1,
+        });
         let mk_bytes = derive_master_key(b"password", "user@test.com", &kdf).unwrap();
         let mk = MasterKey(*mk_bytes);
         let (user_key, _) = mk.generate_user_key().unwrap();

@@ -125,7 +125,9 @@ mod tests {
 
     #[test]
     fn pbkdf2_deterministic() {
-        let kdf = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+        let kdf = Kdf::Pbkdf2(Pbkdf2Params {
+            iterations: 600_000,
+        });
         let k1 = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
         let k2 = derive_master_key(b"password", "user@example.com", &kdf).unwrap();
         assert_eq!(*k1, *k2);
@@ -134,7 +136,9 @@ mod tests {
     #[test]
     fn argon2id_and_pbkdf2_differ() {
         let kdf_a = Kdf::Argon2id(Argon2idParams::default());
-        let kdf_b = Kdf::Pbkdf2(Pbkdf2Params { iterations: 600_000 });
+        let kdf_b = Kdf::Pbkdf2(Pbkdf2Params {
+            iterations: 600_000,
+        });
         let ka = derive_master_key(b"password", "user@example.com", &kdf_a).unwrap();
         let kb = derive_master_key(b"password", "user@example.com", &kdf_b).unwrap();
         assert_ne!(*ka, *kb);
@@ -142,7 +146,11 @@ mod tests {
 
     #[test]
     fn email_case_insensitive() {
-        let kdf = Kdf::Argon2id(Argon2idParams { m_cost: 8192, t_cost: 1, p_cost: 1 });
+        let kdf = Kdf::Argon2id(Argon2idParams {
+            m_cost: 8192,
+            t_cost: 1,
+            p_cost: 1,
+        });
         let k1 = derive_master_key(b"pw", "Test@Example.COM", &kdf).unwrap();
         let k2 = derive_master_key(b"pw", "test@example.com", &kdf).unwrap();
         assert_eq!(*k1, *k2);

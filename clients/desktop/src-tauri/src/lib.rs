@@ -49,14 +49,10 @@ fn setup_auto_lock(app: &mut tauri::App) {
                     // Window lost focus — mark as potentially locked
                     was_locked_clone.store(true, Ordering::Relaxed);
                 }
-                tauri::WindowEvent::Focused(true) => {
-                    // Window regained focus — if OS was locked, emit lock event
-                    if was_locked_clone.swap(false, Ordering::Relaxed) {
-                        // Only emit if vault should auto-lock (configurable in UI)
-                        // For now: always emit so the web UI can decide based on
-                        // the configured timeout
-                        let _ = window_clone.emit("vault:focus-restored", ());
-                    }
+                tauri::WindowEvent::Focused(true)
+                    if was_locked_clone.swap(false, Ordering::Relaxed) =>
+                {
+                    let _ = window_clone.emit("vault:focus-restored", ());
                 }
                 _ => {}
             }

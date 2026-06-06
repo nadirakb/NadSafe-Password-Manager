@@ -46,7 +46,12 @@ impl EncString {
 
         let mac = compute_mac(&sym_key.mac_key, &iv, &ct);
 
-        Ok(Self { enc_type: ENC_TYPE_AES256_CBC_HMAC, iv, ct, mac })
+        Ok(Self {
+            enc_type: ENC_TYPE_AES256_CBC_HMAC,
+            iv,
+            ct,
+            mac,
+        })
     }
 
     /// Decrypt and return the plaintext.
@@ -102,7 +107,12 @@ impl EncString {
         let mut mac = [0u8; 32];
         mac.copy_from_slice(&mac_bytes);
 
-        Ok(Self { enc_type, iv, ct, mac })
+        Ok(Self {
+            enc_type,
+            iv,
+            ct,
+            mac,
+        })
     }
 }
 
@@ -129,7 +139,10 @@ pub struct SymmetricKey {
 impl SymmetricKey {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, CryptoError> {
         if bytes.len() != 64 {
-            return Err(CryptoError::InvalidKeyLength { expected: 64, got: bytes.len() });
+            return Err(CryptoError::InvalidKeyLength {
+                expected: 64,
+                got: bytes.len(),
+            });
         }
         let mut enc_key = [0u8; 32];
         let mut mac_key = [0u8; 32];
@@ -188,8 +201,14 @@ mod tests {
     fn wrong_key_fails_mac() {
         let key = test_key();
         let enc = EncString::encrypt(b"secret", &key).unwrap();
-        let bad_key = SymmetricKey { enc_key: [0xFFu8; 32], mac_key: [0xFFu8; 32] };
-        assert!(matches!(enc.decrypt(&bad_key), Err(CryptoError::MacMismatch)));
+        let bad_key = SymmetricKey {
+            enc_key: [0xFFu8; 32],
+            mac_key: [0xFFu8; 32],
+        };
+        assert!(matches!(
+            enc.decrypt(&bad_key),
+            Err(CryptoError::MacMismatch)
+        ));
     }
 
     #[test]
