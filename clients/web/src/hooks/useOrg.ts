@@ -20,7 +20,7 @@ import {
   generateUserKey,
 } from "../lib/crypto/key-hierarchy";
 import { symKeyFromBytes } from "../lib/crypto/types";
-import { rsaEncrypt, importRsaPublicKey } from "../lib/crypto/rsa";
+import { rsaEncrypt, rsaDecrypt, importRsaPublicKey } from "../lib/crypto/rsa";
 import { toB64 } from "../lib/crypto/utils";
 import { useAuthStore } from "../stores/auth";
 
@@ -140,8 +140,7 @@ export async function decryptOrgKey(encOrgKeyBase64: string): Promise<Uint8Array
   const rsaKey = getSessionRsaKey();
   if (!rsaKey) return null;
   try {
-    const { rsaDecrypt } = await import("../lib/crypto/rsa");
-    return rsaDecrypt(encOrgKeyBase64, rsaKey);
+    return await rsaDecrypt(encOrgKeyBase64, rsaKey);
   } catch {
     return null;
   }
