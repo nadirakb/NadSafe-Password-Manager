@@ -52,5 +52,12 @@
       "resources": ["assets/*"],
       "matches": ["https://*/*"]
     }
-  ]
+  ],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "nadsafe@nadsafe.app",
+      "strict_min_version": "128.0"
+    }
+  }
 }

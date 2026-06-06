@@ -112,7 +112,7 @@ function ri(max: number): number {
 
 // ── Locked view ───────────────────────────────────────────────────
 
-function LockedView({ onUnlock }: { onUnlock: () => void }) {
+function LockedView({ onUnlock, serverUrl }: { onUnlock: () => void; serverUrl: string }) {
   return (
     <div className="view locked-view">
       <div className="header">
@@ -130,7 +130,7 @@ function LockedView({ onUnlock }: { onUnlock: () => void }) {
         <div className="lock-actions">
           <button
             className="btn-outline"
-            onClick={() => ext.tabs.create({ url: "http://localhost:5173" })}
+            onClick={() => ext.tabs.create({ url: serverUrl })}
           >
             Open NadSafe ↗
           </button>
@@ -152,6 +152,7 @@ function ListView({
   matches,
   allItems,
   currentUrl,
+  serverUrl,
   onGenerator,
   onLock,
   onSync,
@@ -159,6 +160,7 @@ function ListView({
   matches: VaultMatch[];
   allItems: VaultItem[];
   currentUrl: string;
+  serverUrl: string;
   onGenerator: () => void;
   onLock: () => void;
   onSync: () => void;
@@ -292,7 +294,7 @@ function ListView({
 
       <div className="footer">
         <span className="footer-count">{allItems.length} items synced</span>
-        <a href="#" onClick={(e) => { e.preventDefault(); ext.tabs.create({ url: "http://localhost:5173" }); }}
+        <a href="#" onClick={(e) => { e.preventDefault(); ext.tabs.create({ url: serverUrl }); }}
           className="footer-link">Open vault</a>
       </div>
     </div>
@@ -343,11 +345,17 @@ function Popup() {
   const [matches, setMatches] = useState<VaultMatch[]>([]);
   const [allItems, setAllItems] = useState<VaultItem[]>([]);
   const [currentUrl, setCurrentUrl] = useState("");
+  const [serverUrl, setServerUrl] = useState("http://localhost:5173");
 
   useEffect(() => {
     getStatus().then(({ locked }) => {
       if (!locked) loadVault();
       else setView("locked");
+    });
+    // Load stored serverUrl for "Open vault" links
+    ext.storage.session.get(["serverUrl"]).then((s) => {
+      const url = (s as Record<string, string>).serverUrl;
+      if (url) setServerUrl(url);
     });
   }, []);
 
@@ -375,13 +383,14 @@ function Popup() {
     setView("locked");
   }
 
-  if (view === "locked") return <LockedView onUnlock={loadVault} />;
+  if (view === "locked") return <LockedView onUnlock={loadVault} serverUrl={serverUrl} />;
   if (view === "generator") return <GeneratorView onBack={() => setView("list")} />;
   return (
     <ListView
       matches={matches}
       allItems={allItems}
       currentUrl={currentUrl}
+      serverUrl={serverUrl}
       onGenerator={() => setView("generator")}
       onLock={handleLock}
       onSync={handleSync}

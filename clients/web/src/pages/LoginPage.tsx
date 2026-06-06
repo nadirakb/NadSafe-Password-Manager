@@ -39,10 +39,17 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [server, setServer] = useState(serverUrl || window.location.origin);
   const [totpToken, setTotpToken] = useState("");
-  // lockedUntil: epoch ms when lockout expires; 0 = not locked
+  // lockedUntil: epoch ms when lockout expires; 0 = not locked.
   const [lockedUntil, setLockedUntil] = useState<number>(0);
   const [secsLeft, setSecsLeft] = useState<number>(0);
   const prevErrorRef = useRef<string | null>(null);
+
+  // Re-sync lockedUntil from localStorage when email changes (restores countdown after page refresh)
+  useEffect(() => {
+    if (!email) return;
+    const rl = getRLState(server, email);
+    if (rl.lockedUntil > Date.now()) setLockedUntil(rl.lockedUntil);
+  }, [email, server]);
 
   // Countdown timer — runs only when locked; updates secsLeft each second
   useEffect(() => {
