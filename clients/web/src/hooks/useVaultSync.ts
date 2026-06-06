@@ -54,6 +54,31 @@ async function decryptCipher(
     item.note = { content: content ?? "" };
   }
 
+  if (cipher.type === 3 && cipher.card) {
+    const [cardholderName, brand, number, expMonth, expYear, code] = await Promise.all([
+      decryptField(cipher.card.cardholderName, userKey),
+      decryptField(cipher.card.brand, userKey),
+      decryptField(cipher.card.number, userKey),
+      decryptField(cipher.card.expMonth, userKey),
+      decryptField(cipher.card.expYear, userKey),
+      decryptField(cipher.card.code, userKey),
+    ]);
+    item.card = {
+      cardholderName: cardholderName ?? "",
+      brand: brand ?? "",
+      number: number ?? "",
+      expMonth: expMonth ?? "",
+      expYear: expYear ?? "",
+      code: code ?? "",
+    };
+  }
+
+  // Identity (type 4): store as note content for now (full identity fields = §future)
+  if (cipher.type === 4 && cipher.notes) {
+    const content = await decryptField(cipher.notes, userKey);
+    item.note = { content: content ?? "" };
+  }
+
   return item;
 }
 

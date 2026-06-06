@@ -143,7 +143,15 @@ function CardDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
 
 // ─── Login detail ─────────────────────────────────────────────────────────────
 
-function LoginDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+function LoginDetail({
+  item,
+  onEdit,
+  hidePasswords,
+}: {
+  item: VaultItem;
+  onEdit: () => void;
+  hidePasswords?: boolean;
+}) {
   const [revealPassword, setRevealPassword] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -181,19 +189,27 @@ function LoginDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) 
         {item.login.password && (
           <div className={styles.fieldGroup}>
             <label className={styles.fieldLabel}>Password</label>
-            <div className={styles.fieldRow}>
-              <input
-                className={[styles.fieldInput, !revealPassword ? styles.passwordMask : ""].join(" ")}
-                readOnly value={item.login.password}
-                type={revealPassword ? "text" : "password"}
-              />
-              <button className={styles.copyBtn} onClick={() => setRevealPassword((v) => !v)}>
-                {revealPassword ? "Hide" : "Show"}
-              </button>
-              <button className={styles.copyBtn} onClick={() => copy(item.login!.password, "password")}>
-                {copied === "password" ? "✓" : "Copy"}
-              </button>
-            </div>
+            {hidePasswords ? (
+              <div className={styles.fieldRow}>
+                <input className={[styles.fieldInput, styles.passwordMask].join(" ")} readOnly
+                  value="••••••••" type="password" disabled />
+                <span className={styles.copyBtn} title="Password hidden by collection policy">🚫</span>
+              </div>
+            ) : (
+              <div className={styles.fieldRow}>
+                <input
+                  className={[styles.fieldInput, !revealPassword ? styles.passwordMask : ""].join(" ")}
+                  readOnly value={item.login.password}
+                  type={revealPassword ? "text" : "password"}
+                />
+                <button className={styles.copyBtn} onClick={() => setRevealPassword((v) => !v)}>
+                  {revealPassword ? "Hide" : "Show"}
+                </button>
+                <button className={styles.copyBtn} onClick={() => copy(item.login!.password, "password")}>
+                  {copied === "password" ? "✓" : "Copy"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -279,11 +295,19 @@ function IdentityDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void 
 
 // ─── Composite detail dispatcher ──────────────────────────────────────────────
 
-function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+function ItemDetail({
+  item,
+  onEdit,
+  hidePasswords,
+}: {
+  item: VaultItem;
+  onEdit: () => void;
+  hidePasswords?: boolean;
+}) {
   if (item.type === "card") return <CardDetail item={item} onEdit={onEdit} />;
   if (item.type === "note") return <NoteDetail item={item} onEdit={onEdit} />;
   if (item.type === "identity") return <IdentityDetail item={item} onEdit={onEdit} />;
-  return <LoginDetail item={item} onEdit={onEdit} />;
+  return <LoginDetail item={item} onEdit={onEdit} hidePasswords={hidePasswords} />;
 }
 
 // ─── Main vault page ──────────────────────────────────────────────────────────
@@ -292,7 +316,7 @@ export function VaultPage() {
   const {
     items: storeItems, selectedItemId, selectItem,
     searchQuery, setSearchQuery, isSyncing, lastSynced,
-    selectedFolderId, selectedCollectionId, folders,
+    selectedFolderId, selectedCollectionId, folders, collections,
   } = useVaultStore();
   const { doSync, error: syncError } = useVaultSync();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -324,6 +348,11 @@ export function VaultPage() {
 
   // Folder label for list header
   const activeFolder = selectedFolderId ? folders.find((f) => f.id === selectedFolderId) : null;
+  // Collection hidePasswords policy for selected item
+  const activeCollection = selectedItem
+    ? collections.find((c) => selectedItem.collectionIds.includes(c.id) && c.hidePasswords)
+    : null;
+  const hidePasswords = !!activeCollection?.hidePasswords;
 
   return (
     <>
@@ -362,7 +391,7 @@ export function VaultPage() {
         {/* Detail panel */}
         <div className={styles.panel}>
           {selectedItem
-            ? <ItemDetail item={selectedItem} onEdit={() => setShowEditModal(true)} />
+            ? <ItemDetail item={selectedItem} onEdit={() => setShowEditModal(true)} hidePasswords={hidePasswords} />
             : (
               <div className={styles.emptyDetail}>
                 <span className={styles.emptyDetailIcon}>🔐</span>

@@ -16,6 +16,7 @@ import { OrgGroups } from "./pages/org/OrgGroups";
 import { OrgCollections } from "./pages/org/OrgCollections";
 import { OrgAuditLog } from "./pages/org/OrgAuditLog";
 import { OrgPolicies } from "./pages/org/OrgPolicies";
+import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { Layout } from "./components/Layout";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -41,6 +42,7 @@ export default function App() {
       <Route path="/register" element={<RegisterPage />} />
       <Route path="/unlock" element={<UnlockPage />} />
       <Route path="/recover" element={<RecoveryPage />} />
+      <Route path="/accept-invite" element={<AcceptInvitePage />} />
 
       {/* Authenticated */}
       <Route
