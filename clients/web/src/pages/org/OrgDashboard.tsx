@@ -8,6 +8,7 @@ const ORG_TABS = [
   { path: "members", label: "Members", icon: "👥" },
   { path: "groups", label: "Groups", icon: "🏷" },
   { path: "collections", label: "Collections", icon: "📂" },
+  { path: "policies", label: "Policies", icon: "🛡" },
   { path: "audit", label: "Audit Log", icon: "📋" },
 ];
 

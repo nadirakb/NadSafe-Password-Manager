@@ -1,14 +1,19 @@
 /**
- * NadSafe MV3 service worker.
+ * NadSafe MV3 service worker — real vault fetch + autofill.
  *
- * Responsibilities:
- * - Session management (auto-lock on timeout)
- * - Message relay between content scripts and popup
- * - Alarm-based vault lock
+ * Message API:
+ *   UNLOCK       { email, passwordHash, serverUrl } → { ok, error? }
+ *   LOCK         {} → { ok }
+ *   GET_STATUS   {} → { locked }
+ *   AUTOFILL_QUERY { url } → { matches: [{id, name, username, password}] }
+ *   GET_ITEMS    {} → { items: VaultItem[] }
+ *   SYNC         {} → { ok, count }
  */
 
 const LOCK_ALARM = "nadsafe-autolock";
 const DEFAULT_LOCK_MINUTES = 15;
+
+// ─── Alarm / lock ─────────────────────────────────────────────────────────────
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.session.set({ locked: true });
@@ -16,18 +21,28 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === LOCK_ALARM) {
-    lockVault();
-  }
+  if (alarm.name === LOCK_ALARM) lockVault();
 });
+
+function lockVault() {
+  chrome.storage.session.set({ locked: true, sessionKey: null, items: null });
+}
+
+function scheduleLock(minutes) {
+  chrome.alarms.create(LOCK_ALARM, { delayInMinutes: minutes });
+}
+
+function resetLockAlarm() {
+  chrome.alarms.clear(LOCK_ALARM, () => scheduleLock(DEFAULT_LOCK_MINUTES));
+}
+
+// ─── Message handler ──────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   switch (message.type) {
     case "UNLOCK":
-      chrome.storage.session.set({ locked: false });
-      resetLockAlarm();
-      sendResponse({ ok: true });
-      break;
+      handleUnlock(message).then(sendResponse).catch((err) => sendResponse({ ok: false, error: String(err) }));
+      return true;
 
     case "LOCK":
       lockVault();
@@ -38,34 +53,118 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       chrome.storage.session.get(["locked"], (result) => {
         sendResponse({ locked: result.locked ?? true });
       });
-      return true; // async response
+      return true;
 
     case "AUTOFILL_QUERY":
-      // Content script asking for credentials for a given URL
       handleAutofillQuery(message.url).then(sendResponse);
       return true;
+
+    case "GET_ITEMS":
+      handleGetItems().then(sendResponse);
+      return true;
+
+    case "SYNC":
+      handleSync().then(sendResponse);
+      return true;
+
+    case "STORE_ITEMS":
+      // Web app pushes pre-decrypted items via content script bridge
+      chrome.storage.session.set({ items: message.items, locked: false });
+      sendResponse({ ok: true, count: message.items?.length ?? 0 });
+      resetLockAlarm();
+      break;
 
     default:
       sendResponse({ error: "Unknown message type" });
   }
 });
 
-function lockVault() {
-  chrome.storage.session.set({ locked: true, sessionKey: null });
-}
+// ─── Unlock flow ──────────────────────────────────────────────────────────────
 
-function scheduleLock(minutes) {
-  chrome.alarms.create(LOCK_ALARM, { delayInMinutes: minutes });
-}
+async function handleUnlock({ email, passwordHash, serverUrl, accessToken, encryptedUserKey, kdfType, kdfParams }) {
+  if (!accessToken || !encryptedUserKey) {
+    return { ok: false, error: "Missing token or encrypted key — re-login in web app first" };
+  }
 
-function resetLockAlarm() {
-  chrome.alarms.clear(LOCK_ALARM, () => {
-    scheduleLock(DEFAULT_LOCK_MINUTES);
+  // Store token + server for API calls
+  await chrome.storage.session.set({
+    locked: false,
+    accessToken,
+    serverUrl: serverUrl ?? "",
+    email,
+    encryptedUserKey,
+    kdfType,
+    kdfParams,
   });
+
+  resetLockAlarm();
+
+  // Trigger immediate sync
+  await handleSync().catch(() => null);
+
+  return { ok: true };
 }
+
+// ─── Sync vault ───────────────────────────────────────────────────────────────
+
+async function handleSync() {
+  const session = await chrome.storage.session.get([
+    "locked", "accessToken", "serverUrl",
+  ]);
+
+  if (session.locked || !session.accessToken) {
+    return { ok: false, error: "Vault locked" };
+  }
+
+  try {
+    const base = session.serverUrl || "";
+    const res = await fetch(`${base}/api/sync?excludeDomains=true`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    });
+
+    if (!res.ok) throw new Error(`Sync HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Store raw (encrypted) ciphers — decryption happens in content script
+    // or popup which has access to WebCrypto and hash-wasm
+    await chrome.storage.session.set({ rawCiphers: data.ciphers ?? [] });
+
+    return { ok: true, count: (data.ciphers ?? []).length };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// ─── Get cached items (already decrypted by popup) ────────────────────────────
+
+async function handleGetItems() {
+  const session = await chrome.storage.session.get(["locked", "items"]);
+  if (session.locked) return { items: [] };
+  return { items: session.items ?? [] };
+}
+
+// ─── Autofill: match URL against cached items ─────────────────────────────────
 
 async function handleAutofillQuery(url) {
-  // TODO: query encrypted vault, decrypt matching logins for the given URL
-  // Returns array of {name, username, encryptedPassword, id}
-  return { matches: [] };
+  const session = await chrome.storage.session.get(["locked", "items"]);
+  if (session.locked || !session.items) return { matches: [] };
+
+  let hostname = "";
+  try { hostname = new URL(url).hostname; } catch { return { matches: [] }; }
+
+  const matches = (session.items ?? [])
+    .filter((item) => {
+      if (item.type !== "login" || !item.login?.uris) return false;
+      return item.login.uris.some((uri) => {
+        try { return new URL(uri).hostname === hostname; } catch { return false; }
+      });
+    })
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      username: item.login.username ?? "",
+      password: item.login.password ?? "",
+    }));
+
+  return { matches };
 }

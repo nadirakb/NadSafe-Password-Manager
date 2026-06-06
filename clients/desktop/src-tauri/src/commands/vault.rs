@@ -6,7 +6,7 @@ use nadsafe_crypto_core::{
     password_gen::{generate_password as gen_pw, PasswordConfig},
 };
 use serde::{Deserialize, Serialize};
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DeriveKeyRequest {

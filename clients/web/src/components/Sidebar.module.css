@@ -159,3 +159,124 @@
   color: var(--color-text);
   background: var(--color-bg-hover);
 }
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+}
+
+.sectionAddBtn {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  color: var(--color-text-disabled);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.sectionAddBtn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.sectionEmpty {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-disabled);
+  padding: 0 var(--space-3) var(--space-2);
+  margin: 0;
+}
+
+.sectionError {
+  font-size: var(--font-size-xs);
+  color: #ef4444;
+  padding: 0 var(--space-3);
+  margin: 0;
+}
+
+.newFolderForm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3) var(--space-2);
+}
+
+.newFolderInput {
+  flex: 1;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  padding: 3px var(--space-2);
+  outline: none;
+}
+
+.newFolderInput:focus { border-color: var(--color-primary); }
+
+.newFolderSave,
+.newFolderCancel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.newFolderSave:hover { color: #22c55e; }
+.newFolderCancel:hover { color: #ef4444; }
+
+.folderItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  position: relative;
+}
+
+.folderItem:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.folderItemActive {
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+}
+
+.folderName {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-sm);
+}
+
+.folderActions {
+  display: none;
+  gap: 2px;
+}
+
+.folderItem:hover .folderActions {
+  display: flex;
+}
+
+.folderActionBtn {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-disabled);
+  padding: 2px 3px;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.folderActionBtn:hover { color: var(--color-text); background: var(--color-bg-hover); }

@@ -116,6 +116,7 @@ export function useLogin() {
 export function useRegister() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryEntropy, setRecoveryEntropy] = useState<Uint8Array | null>(null);
   const { setServerUrl, login } = useAuthStore();
   const navigate = useNavigate();
 
@@ -179,17 +180,26 @@ export function useRegister() {
           encryptedPrivateKey,
         );
 
-        navigate("/vault");
+        // Generate recovery entropy — shown to user before navigating to vault
+        const { generateRecoveryEntropy } = await import("../lib/crypto/recovery");
+        const entropy = generateRecoveryEntropy();
+        setRecoveryEntropy(entropy);
+        // Navigation happens after user dismisses recovery phrase modal
       } catch (err) {
         setError(err instanceof Error ? err.message : "Registration failed");
       } finally {
         setLoading(false);
       }
     },
-    [login, setServerUrl, navigate],
+    [login, setServerUrl],
   );
 
-  return { doRegister, loading, error };
+  function dismissRecovery() {
+    setRecoveryEntropy(null);
+    navigate("/vault");
+  }
+
+  return { doRegister, loading, error, recoveryEntropy, dismissRecovery };
 }
 
 export function useLogout() {

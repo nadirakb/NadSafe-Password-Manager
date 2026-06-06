@@ -8,44 +8,54 @@ interface VaultMatch {
   id: string;
   name: string;
   username: string;
+  password?: string;
+}
+
+interface VaultItem {
+  id: string;
+  type: string;
+  name: string;
+  login?: { username: string; password: string; uris: string[]; totp: string | null };
 }
 
 type View = "locked" | "list" | "generator";
 
-// ── Storage helpers ────────────────────────────────────────────────
+// ── Background messaging ───────────────────────────────────────────
 
-async function getStatus(): Promise<{ locked: boolean }> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "GET_STATUS" }, (res) => {
-      resolve(res ?? { locked: true });
-    });
-  });
+function sendMsg<T>(msg: object): Promise<T> {
+  return new Promise((resolve) =>
+    chrome.runtime.sendMessage(msg, (res) => resolve(res ?? ({} as T))),
+  );
 }
 
-async function unlock(password: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "UNLOCK", password }, (res) => {
-      resolve(res?.ok ?? false);
-    });
-  });
+async function getStatus(): Promise<{ locked: boolean }> {
+  return sendMsg({ type: "GET_STATUS" });
+}
+
+async function lockVault(): Promise<void> {
+  await sendMsg({ type: "LOCK" });
+}
+
+async function syncVault(): Promise<{ ok: boolean; count?: number }> {
+  return sendMsg({ type: "SYNC" });
+}
+
+async function getItems(): Promise<VaultItem[]> {
+  const res = await sendMsg<{ items: VaultItem[] }>({ type: "GET_ITEMS" });
+  return res.items ?? [];
 }
 
 async function queryMatches(url: string): Promise<VaultMatch[]> {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "AUTOFILL_QUERY", url }, (res) => {
-      resolve(res?.matches ?? []);
-    });
-  });
+  const res = await sendMsg<{ matches: VaultMatch[] }>({ type: "AUTOFILL_QUERY", url });
+  return res.matches ?? [];
 }
 
 async function autofill(itemId: string): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id) {
-    chrome.tabs.sendMessage(tab.id, { type: "AUTOFILL", itemId });
-  }
+  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: "AUTOFILL", itemId });
 }
 
-// ── Password Generator (inline, no external deps) ──────────────────
+// ── Password Generator ────────────────────────────────────────────
 
 function generatePassword(length = 20): string {
   const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -54,47 +64,27 @@ function generatePassword(length = 20): string {
   const symbols = "!@#$%^&*()_+-=[]{}|;:,.<>?";
   const charset = upper + lower + digits + symbols;
   const required = [
-    upper[randomInt(upper.length)],
-    lower[randomInt(lower.length)],
-    digits[randomInt(digits.length)],
-    symbols[randomInt(symbols.length)],
+    upper[ri(upper.length)], lower[ri(lower.length)],
+    digits[ri(digits.length)], symbols[ri(symbols.length)],
   ];
-  const rest = Array.from({ length: length - required.length }, () => charset[randomInt(charset.length)]);
+  const rest = Array.from({ length: length - required.length }, () => charset[ri(charset.length)]);
   const all = [...required, ...rest];
-  // Fisher-Yates shuffle
   for (let i = all.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1);
+    const j = ri(i + 1);
     [all[i], all[j]] = [all[j], all[i]];
   }
   return all.join("");
 }
 
-function randomInt(max: number): number {
+function ri(max: number): number {
   const arr = new Uint32Array(1);
   crypto.getRandomValues(arr);
   return arr[0] % max;
 }
 
-// ── Views ──────────────────────────────────────────────────────────
+// ── Locked view ───────────────────────────────────────────────────
 
 function LockedView({ onUnlock }: { onUnlock: () => void }) {
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    const ok = await unlock(password);
-    if (ok) {
-      onUnlock();
-    } else {
-      setError("Incorrect master password");
-    }
-    setLoading(false);
-  }
-
   return (
     <div className="view locked-view">
       <div className="header">
@@ -104,38 +94,61 @@ function LockedView({ onUnlock }: { onUnlock: () => void }) {
       <div className="locked-body">
         <div className="lock-icon">🔒</div>
         <p className="lock-label">Vault locked</p>
-        <form onSubmit={handleSubmit} className="unlock-form">
-          <input
-            type="password"
-            className="input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Master password"
-            autoFocus
-            required
-          />
-          {error && <p className="error">{error}</p>}
-          <button type="submit" className="btn-primary" disabled={loading}>
-            {loading ? "Unlocking…" : "Unlock"}
+        <p className="lock-hint">
+          Open the NadSafe web app, then go to{" "}
+          <strong>Settings → Browser Extension → Push to Extension</strong>
+          {" "}to sync your vault.
+        </p>
+        <div className="lock-actions">
+          <button
+            className="btn-outline"
+            onClick={() => chrome.tabs.create({ url: "http://localhost:5173" })}
+          >
+            Open NadSafe ↗
           </button>
-        </form>
+          <button className="btn-primary" onClick={async () => {
+            const { locked } = await getStatus();
+            if (!locked) onUnlock();
+          }}>
+            Check status
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
+// ── List view ─────────────────────────────────────────────────────
+
 function ListView({
   matches,
+  allItems,
   currentUrl,
   onGenerator,
   onLock,
+  onSync,
 }: {
   matches: VaultMatch[];
+  allItems: VaultItem[];
   currentUrl: string;
   onGenerator: () => void;
   onLock: () => void;
+  onSync: () => void;
 }) {
   const [filled, setFilled] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [tab, setTab] = useState<"matches" | "all">(matches.length > 0 ? "matches" : "all");
+
+  const hostname = (() => {
+    try { return new URL(currentUrl).hostname; } catch { return currentUrl; }
+  })();
+
+  async function handleSync() {
+    setSyncing(true);
+    await onSync();
+    setSyncing(false);
+  }
 
   function handleAutofill(id: string) {
     autofill(id);
@@ -143,9 +156,10 @@ function ListView({
     setTimeout(() => window.close(), 800);
   }
 
-  const hostname = (() => {
-    try { return new URL(currentUrl).hostname; } catch { return currentUrl; }
-  })();
+  const filteredAll = allItems
+    .filter((i) => i.type === "login")
+    .filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()) ||
+      (i.login?.username ?? "").toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="view">
@@ -153,62 +167,118 @@ function ListView({
         <span className="logo">NS</span>
         <span className="brand">NadSafe</span>
         <div className="header-actions">
+          <button className="icon-btn" onClick={handleSync} title="Sync vault" disabled={syncing}>
+            {syncing ? "…" : "↻"}
+          </button>
           <button className="icon-btn" onClick={onGenerator} title="Password generator">⚙</button>
           <button className="icon-btn" onClick={onLock} title="Lock vault">🔒</button>
         </div>
       </div>
 
-      <div className="site-row">
-        <span className="site-icon">🌐</span>
-        <span className="site-name">{hostname}</span>
+      {hostname && (
+        <div className="site-row">
+          <span className="site-icon">🌐</span>
+          <span className="site-name">{hostname}</span>
+        </div>
+      )}
+
+      <div className="tab-row">
+        <button
+          className={["tab-btn", tab === "matches" ? "tab-active" : ""].join(" ")}
+          onClick={() => setTab("matches")}
+        >
+          Matches ({matches.length})
+        </button>
+        <button
+          className={["tab-btn", tab === "all" ? "tab-active" : ""].join(" ")}
+          onClick={() => setTab("all")}
+        >
+          All items
+        </button>
       </div>
 
+      {tab === "all" && (
+        <div className="search-row">
+          <input
+            className="search-input"
+            type="search"
+            placeholder="Search…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+        </div>
+      )}
+
       <div className="items">
-        {matches.length === 0 ? (
+        {tab === "matches" && matches.length === 0 && (
           <div className="empty-state">
             <p>No saved logins for this site.</p>
-            <button className="btn-outline" onClick={() => {
-              chrome.tabs.create({ url: chrome.runtime.getURL("src/popup/popup.html") + "#add" });
-            }}>
-              + Save login
-            </button>
           </div>
-        ) : (
-          matches.map((m) => (
-            <button
-              key={m.id}
-              className={["item-row", filled === m.id ? "item-filled" : ""].join(" ")}
-              onClick={() => handleAutofill(m.id)}
-            >
-              <div className="item-avatar">{m.name[0]?.toUpperCase()}</div>
-              <div className="item-info">
-                <span className="item-name">{m.name}</span>
-                <span className="item-user">{m.username}</span>
-              </div>
-              <span className="item-arrow">{filled === m.id ? "✓" : "↵"}</span>
-            </button>
-          ))
         )}
+
+        {tab === "matches" && matches.map((m) => (
+          <button
+            key={m.id}
+            className={["item-row", filled === m.id ? "item-filled" : ""].join(" ")}
+            onClick={() => handleAutofill(m.id)}
+          >
+            <div className="item-avatar">{m.name[0]?.toUpperCase()}</div>
+            <div className="item-info">
+              <span className="item-name">{m.name}</span>
+              <span className="item-user">{m.username}</span>
+            </div>
+            <span className="item-arrow">{filled === m.id ? "✓" : "↵"}</span>
+          </button>
+        ))}
+
+        {tab === "all" && filteredAll.length === 0 && (
+          <div className="empty-state">
+            <p>{search ? "No matches" : "No logins in vault"}</p>
+          </div>
+        )}
+
+        {tab === "all" && filteredAll.map((item) => (
+          <button
+            key={item.id}
+            className={["item-row", filled === item.id ? "item-filled" : ""].join(" ")}
+            onClick={() => {
+              const match: VaultMatch = {
+                id: item.id,
+                name: item.name,
+                username: item.login?.username ?? "",
+                password: item.login?.password ?? "",
+              };
+              handleAutofill(item.id);
+            }}
+          >
+            <div className="item-avatar">{item.name[0]?.toUpperCase()}</div>
+            <div className="item-info">
+              <span className="item-name">{item.name}</span>
+              <span className="item-user">{item.login?.username ?? ""}</span>
+            </div>
+            <span className="item-arrow">{filled === item.id ? "✓" : "↵"}</span>
+          </button>
+        ))}
       </div>
 
       <div className="footer">
-        <a href="#" onClick={(e) => { e.preventDefault(); chrome.runtime.openOptionsPage?.(); }}
+        <span className="footer-count">{allItems.length} items synced</span>
+        <a href="#" onClick={(e) => { e.preventDefault(); chrome.tabs.create({ url: "http://localhost:5173" }); }}
           className="footer-link">Open vault</a>
       </div>
     </div>
   );
 }
 
+// ── Generator view ────────────────────────────────────────────────
+
 function GeneratorView({ onBack }: { onBack: () => void }) {
   const [pw, setPw] = useState(() => generatePassword(20));
   const [length, setLength] = useState(20);
   const [copied, setCopied] = useState(false);
 
-  function regen(len = length) {
-    setPw(generatePassword(len));
-    setCopied(false);
-  }
-
+  function regen(len = length) { setPw(generatePassword(len)); setCopied(false); }
   function copy() {
     navigator.clipboard.writeText(pw).catch(() => null);
     setCopied(true);
@@ -243,37 +313,50 @@ function GeneratorView({ onBack }: { onBack: () => void }) {
 function Popup() {
   const [view, setView] = useState<View>("locked");
   const [matches, setMatches] = useState<VaultMatch[]>([]);
+  const [allItems, setAllItems] = useState<VaultItem[]>([]);
   const [currentUrl, setCurrentUrl] = useState("");
 
   useEffect(() => {
     getStatus().then(({ locked }) => {
-      if (!locked) loadMatches();
+      if (!locked) loadVault();
       else setView("locked");
     });
   }, []);
 
-  async function loadMatches() {
+  async function loadVault() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const url = tab?.url ?? "";
     setCurrentUrl(url);
-    const m = await queryMatches(url);
+
+    const [m, items] = await Promise.all([
+      queryMatches(url),
+      getItems(),
+    ]);
     setMatches(m);
+    setAllItems(items);
     setView("list");
   }
 
+  async function handleSync() {
+    await syncVault();
+    await loadVault();
+  }
+
   function handleLock() {
-    chrome.runtime.sendMessage({ type: "LOCK" });
+    lockVault();
     setView("locked");
   }
 
-  if (view === "locked") return <LockedView onUnlock={loadMatches} />;
+  if (view === "locked") return <LockedView onUnlock={loadVault} />;
   if (view === "generator") return <GeneratorView onBack={() => setView("list")} />;
   return (
     <ListView
       matches={matches}
+      allItems={allItems}
       currentUrl={currentUrl}
       onGenerator={() => setView("generator")}
       onLock={handleLock}
+      onSync={handleSync}
     />
   );
 }

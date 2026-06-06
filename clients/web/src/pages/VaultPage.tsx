@@ -33,16 +33,117 @@ function ItemRow({ item, selected, onClick }: { item: VaultItem; selected: boole
       <span className={styles.itemIcon}>{TYPE_ICONS[item.type]}</span>
       <div className={styles.itemMeta}>
         <span className={styles.itemName}>{item.name}</span>
-        {item.login && <span className={styles.itemSub}>{item.login.username}</span>}
+        {item.login?.username && <span className={styles.itemSub}>{item.login.username}</span>}
         {item.note && <span className={styles.itemSub}>Secure note</span>}
-        {item.card && <span className={styles.itemSub}>Card</span>}
+        {item.card && <span className={styles.itemSub}>{item.card.brand || "Card"} ···· {item.card.number?.slice(-4) || "····"}</span>}
+        {item.type === "identity" && <span className={styles.itemSub}>Identity</span>}
       </div>
       {item.favorite && <span className={styles.star}>★</span>}
     </button>
   );
 }
 
-function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+// ─── Card detail ─────────────────────────────────────────────────────────────
+
+function CardDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+  const [showCode, setShowCode] = useState(false);
+  const [showNumber, setShowNumber] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(value: string, field: string) {
+    navigator.clipboard.writeText(value).catch(() => null);
+    setCopied(field);
+    setTimeout(() => setCopied(null), 2000);
+  }
+
+  if (!item.card) return null;
+  const c = item.card;
+
+  return (
+    <div className={styles.detail}>
+      <div className={styles.detailHeader}>
+        <span className={styles.detailIcon}>💳</span>
+        <div style={{ flex: 1 }}>
+          <h2 className={styles.detailTitle}>{item.name}</h2>
+          {c.brand && <span className={styles.detailSub}>{c.brand}</span>}
+        </div>
+        <button className={styles.editBtn} onClick={onEdit}>Edit</button>
+      </div>
+
+      <div className={styles.fields}>
+        {c.cardholderName && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Cardholder</label>
+            <div className={styles.fieldRow}>
+              <input className={styles.fieldInput} readOnly value={c.cardholderName} />
+              <button className={styles.copyBtn} onClick={() => copy(c.cardholderName, "name")}>
+                {copied === "name" ? "✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {c.number && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Card number</label>
+            <div className={styles.fieldRow}>
+              <input
+                className={[styles.fieldInput, !showNumber ? styles.passwordMask : ""].join(" ")}
+                readOnly
+                value={showNumber ? c.number : `•••• •••• •••• ${c.number.slice(-4)}`}
+                type="text"
+                style={{ fontFamily: "var(--font-mono)" }}
+              />
+              <button className={styles.copyBtn} onClick={() => setShowNumber((v) => !v)}>
+                {showNumber ? "Hide" : "Show"}
+              </button>
+              <button className={styles.copyBtn} onClick={() => copy(c.number, "number")}>
+                {copied === "number" ? "✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {(c.expMonth || c.expYear) && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Expiry</label>
+            <div className={styles.fieldRow}>
+              <input className={styles.fieldInput} readOnly value={`${c.expMonth ?? "??"} / ${c.expYear ?? "????"}`} />
+            </div>
+          </div>
+        )}
+
+        {c.code && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Security code</label>
+            <div className={styles.fieldRow}>
+              <input
+                className={[styles.fieldInput, !showCode ? styles.passwordMask : ""].join(" ")}
+                readOnly value={c.code}
+                type={showCode ? "text" : "password"}
+                style={{ fontFamily: "var(--font-mono)" }}
+              />
+              <button className={styles.copyBtn} onClick={() => setShowCode((v) => !v)}>
+                {showCode ? "Hide" : "Show"}
+              </button>
+              <button className={styles.copyBtn} onClick={() => copy(c.code, "code")}>
+                {copied === "code" ? "✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className={styles.detailFooter}>
+        <span className={styles.timestamp}>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Login detail ─────────────────────────────────────────────────────────────
+
+function LoginDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
   const [revealPassword, setRevealPassword] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -51,6 +152,8 @@ function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
     setCopied(field);
     setTimeout(() => setCopied(null), 2000);
   }
+
+  if (!item.login) return null;
 
   return (
     <div className={styles.detail}>
@@ -62,68 +165,57 @@ function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
         <button className={styles.editBtn} onClick={onEdit}>Edit</button>
       </div>
 
-      {item.login && (
-        <div className={styles.fields}>
-          {item.login.username && (
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Username</label>
-              <div className={styles.fieldRow}>
-                <input className={styles.fieldInput} readOnly value={item.login.username} />
-                <button className={styles.copyBtn} onClick={() => copy(item.login!.username, "username")}>
-                  {copied === "username" ? "✓" : "Copy"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {item.login.password && (
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>Password</label>
-              <div className={styles.fieldRow}>
-                <input
-                  className={[styles.fieldInput, !revealPassword ? styles.passwordMask : ""].join(" ")}
-                  readOnly value={item.login.password}
-                  type={revealPassword ? "text" : "password"}
-                />
-                <button className={styles.copyBtn} onClick={() => setRevealPassword((v) => !v)}>
-                  {revealPassword ? "Hide" : "Show"}
-                </button>
-                <button className={styles.copyBtn} onClick={() => copy(item.login!.password, "password")}>
-                  {copied === "password" ? "✓" : "Copy"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {item.login.uris.length > 0 && (
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>URL</label>
-              <div className={styles.fieldRow}>
-                <input className={styles.fieldInput} readOnly value={item.login.uris[0]} />
-                <a href={item.login.uris[0]} target="_blank" rel="noopener noreferrer" className={styles.copyBtn}>
-                  Open ↗
-                </a>
-              </div>
-            </div>
-          )}
-
-          {item.login.totp && (
-            <div className={styles.fieldGroup}>
-              <label className={styles.fieldLabel}>One-Time Password</label>
-              <TotpDisplay secret={item.login.totp} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {item.note && (
-        <div className={styles.fields}>
+      <div className={styles.fields}>
+        {item.login.username && (
           <div className={styles.fieldGroup}>
-            <label className={styles.fieldLabel}>Note</label>
-            <textarea className={styles.noteArea} readOnly value={item.note.content} rows={10} />
+            <label className={styles.fieldLabel}>Username</label>
+            <div className={styles.fieldRow}>
+              <input className={styles.fieldInput} readOnly value={item.login.username} />
+              <button className={styles.copyBtn} onClick={() => copy(item.login!.username, "username")}>
+                {copied === "username" ? "✓" : "Copy"}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {item.login.password && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Password</label>
+            <div className={styles.fieldRow}>
+              <input
+                className={[styles.fieldInput, !revealPassword ? styles.passwordMask : ""].join(" ")}
+                readOnly value={item.login.password}
+                type={revealPassword ? "text" : "password"}
+              />
+              <button className={styles.copyBtn} onClick={() => setRevealPassword((v) => !v)}>
+                {revealPassword ? "Hide" : "Show"}
+              </button>
+              <button className={styles.copyBtn} onClick={() => copy(item.login!.password, "password")}>
+                {copied === "password" ? "✓" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {item.login.uris.length > 0 && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>URL</label>
+            <div className={styles.fieldRow}>
+              <input className={styles.fieldInput} readOnly value={item.login.uris[0]} />
+              <a href={item.login.uris[0]} target="_blank" rel="noopener noreferrer" className={styles.copyBtn}>
+                Open ↗
+              </a>
+            </div>
+          </div>
+        )}
+
+        {item.login.totp && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>One-Time Password</label>
+            <TotpDisplay secret={item.login.totp} />
+          </div>
+        )}
+      </div>
 
       <div className={styles.detailFooter}>
         <span className={styles.timestamp}>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
@@ -132,10 +224,75 @@ function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
   );
 }
 
+// ─── Note detail ──────────────────────────────────────────────────────────────
+
+function NoteDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+  if (!item.note) return null;
+  return (
+    <div className={styles.detail}>
+      <div className={styles.detailHeader}>
+        <span className={styles.detailIcon}>📝</span>
+        <div style={{ flex: 1 }}>
+          <h2 className={styles.detailTitle}>{item.name}</h2>
+        </div>
+        <button className={styles.editBtn} onClick={onEdit}>Edit</button>
+      </div>
+      <div className={styles.fields}>
+        <div className={styles.fieldGroup}>
+          <label className={styles.fieldLabel}>Note</label>
+          <textarea className={styles.noteArea} readOnly value={item.note.content} rows={12} />
+        </div>
+      </div>
+      <div className={styles.detailFooter}>
+        <span className={styles.timestamp}>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Identity detail ──────────────────────────────────────────────────────────
+
+function IdentityDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+  return (
+    <div className={styles.detail}>
+      <div className={styles.detailHeader}>
+        <span className={styles.detailIcon}>👤</span>
+        <div style={{ flex: 1 }}>
+          <h2 className={styles.detailTitle}>{item.name}</h2>
+        </div>
+        <button className={styles.editBtn} onClick={onEdit}>Edit</button>
+      </div>
+      <div className={styles.fields}>
+        {item.note?.content && (
+          <div className={styles.fieldGroup}>
+            <label className={styles.fieldLabel}>Details</label>
+            <textarea className={styles.noteArea} readOnly value={item.note.content} rows={8} />
+          </div>
+        )}
+      </div>
+      <div className={styles.detailFooter}>
+        <span className={styles.timestamp}>Updated {new Date(item.updatedAt).toLocaleDateString()}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Composite detail dispatcher ──────────────────────────────────────────────
+
+function ItemDetail({ item, onEdit }: { item: VaultItem; onEdit: () => void }) {
+  if (item.type === "card") return <CardDetail item={item} onEdit={onEdit} />;
+  if (item.type === "note") return <NoteDetail item={item} onEdit={onEdit} />;
+  if (item.type === "identity") return <IdentityDetail item={item} onEdit={onEdit} />;
+  return <LoginDetail item={item} onEdit={onEdit} />;
+}
+
+// ─── Main vault page ──────────────────────────────────────────────────────────
+
 export function VaultPage() {
   const {
     items: storeItems, selectedItemId, selectItem,
     searchQuery, setSearchQuery, isSyncing, lastSynced,
+    selectedFolderId, selectedCollectionId, folders,
   } = useVaultStore();
   const { doSync, error: syncError } = useVaultSync();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -147,12 +304,26 @@ export function VaultPage() {
 
   // Show mocks only before first sync (UI preview). After sync: show real items or empty.
   const allItems = storeItems.length > 0 ? storeItems : lastSynced !== null ? [] : MOCK_ITEMS;
-  const filtered = allItems.filter((i) =>
-    !searchQuery ||
-    i.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (i.login?.username ?? "").toLowerCase().includes(searchQuery.toLowerCase()),
-  );
+
+  // Filter by folder/collection/search
+  const filtered = allItems.filter((i) => {
+    if (selectedFolderId && i.folderId !== selectedFolderId) return false;
+    if (selectedCollectionId && !i.collectionIds.includes(selectedCollectionId)) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return (
+        i.name.toLowerCase().includes(q) ||
+        (i.login?.username ?? "").toLowerCase().includes(q) ||
+        (i.login?.uris[0] ?? "").toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
   const selectedItem = filtered.find((i) => i.id === selectedItemId) ?? null;
+
+  // Folder label for list header
+  const activeFolder = selectedFolderId ? folders.find((f) => f.id === selectedFolderId) : null;
 
   return (
     <>
@@ -165,7 +336,12 @@ export function VaultPage() {
             <button className={styles.addBtn} onClick={() => setShowAddModal(true)} title="Add item">+</button>
           </div>
           <div className={styles.listCount}>
-            {isSyncing ? "Syncing…" : syncError ? `⚠ ${syncError}` : `${filtered.length} items`}
+            {isSyncing ? "Syncing…" : syncError ? `⚠ ${syncError}` : (
+              <>
+                {activeFolder ? `📁 ${activeFolder.name} · ` : ""}
+                {filtered.length} item{filtered.length !== 1 ? "s" : ""}
+              </>
+            )}
             {!isSyncing && (
               <button onClick={doSync} title="Sync now"
                 style={{ marginLeft: 8, fontSize: "var(--font-size-xs)", color: "var(--color-text-disabled)", background: "none", border: "none", cursor: "pointer" }}>

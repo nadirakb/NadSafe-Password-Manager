@@ -232,6 +232,12 @@
   color: var(--color-text);
 }
 
+.detailSub {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
 .fields {
   display: flex;
   flex-direction: column;

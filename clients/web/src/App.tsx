@@ -15,6 +15,7 @@ import { OrgMembers } from "./pages/org/OrgMembers";
 import { OrgGroups } from "./pages/org/OrgGroups";
 import { OrgCollections } from "./pages/org/OrgCollections";
 import { OrgAuditLog } from "./pages/org/OrgAuditLog";
+import { OrgPolicies } from "./pages/org/OrgPolicies";
 import { Layout } from "./components/Layout";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="members" element={<OrgMembers />} />
           <Route path="groups" element={<OrgGroups />} />
           <Route path="collections" element={<OrgCollections />} />
+          <Route path="policies" element={<OrgPolicies />} />
           <Route path="audit" element={<OrgAuditLog />} />
         </Route>
         <Route path="import" element={<ImportPage />} />
