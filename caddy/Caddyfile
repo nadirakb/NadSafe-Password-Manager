@@ -1,0 +1,44 @@
+# NadSafe / Vaultwarden production Caddyfile
+# Caddy auto-provisions TLS via Let's Encrypt (ACME)
+#
+# Set DOMAIN env var before starting: e.g. vault.example.com
+
+{$DOMAIN} {
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "0"
+        Referrer-Policy "same-origin"
+        # WebAuthn requires same origin — do not set COOP/COEP unless explicitly needed
+        -Server
+    }
+
+    # WebSocket for live sync
+    @ws {
+        header Connection *Upgrade*
+        header Upgrade    websocket
+    }
+    reverse_proxy @ws vaultwarden:80
+
+    # Rate limit login endpoint (requires Caddy enterprise or caddy-ratelimit plugin)
+    # Uncomment if using xcaddy build with caddy-ratelimit:
+    # route /api/accounts/prelogin* {
+    #     rate_limit {
+    #         zone login {
+    #             key {remote_host}
+    #             events 5
+    #             window 1m
+    #         }
+    #     }
+    #     reverse_proxy vaultwarden:80
+    # }
+
+    # Forward real IP so Vaultwarden rate limiting works
+    reverse_proxy vaultwarden:80 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+    }
+}

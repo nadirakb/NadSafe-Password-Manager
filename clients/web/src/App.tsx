@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { getSessionUserKey } from "./stores/session";
+import { useTauriAutoLock } from "./hooks/useTauriAutoLock";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { VaultPage } from "./pages/VaultPage";
@@ -28,6 +29,9 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { isAuthenticated, isLocked, lock } = useAuthStore();
+
+  // Lock vault when Tauri desktop window regains focus after OS sleep/lock
+  useTauriAutoLock();
 
   useEffect(() => {
     if (isAuthenticated && !isLocked && !getSessionUserKey()) {

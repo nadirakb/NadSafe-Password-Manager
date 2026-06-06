@@ -1,0 +1,95 @@
+# Production override for NadSafe / Vaultwarden
+#
+# Usage:
+#   ADMIN_TOKEN=$(openssl rand -base64 48) \
+#   DOMAIN=https://vault.example.com \
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Prerequisites:
+#   - Valid DOMAIN env var pointing to your public hostname (needed for WebAuthn RP ID)
+#   - ADMIN_TOKEN env var (bcrypt hash or raw string ≥ 30 chars; raw strings are hashed on startup)
+#   - Caddy (or another reverse proxy) terminating TLS — see caddy/Caddyfile below
+#   - Outbound SMTP credentials if email verification is desired
+
+services:
+  vaultwarden:
+    restart: always
+    environment:
+      # ── Security ──────────────────────────────────────────────────────────
+      SIGNUPS_ALLOWED: "false"         # Disable open registration in prod
+      SIGNUPS_VERIFY: "true"           # Require email verification on invite
+      INVITATIONS_ALLOWED: "true"      # Org admins can still invite members
+      SHOW_PASSWORD_HINT: "false"
+
+      # Admin panel — required; use bcrypt hash for stronger protection:
+      #   echo -n "your-admin-pass" | argon2 somesalt -e  (or bcrypt)
+      # Set via env, not committed to version control:
+      ADMIN_TOKEN: "${ADMIN_TOKEN}"
+
+      # ── Domain / WebAuthn ─────────────────────────────────────────────────
+      # Must be the exact public URL (scheme + host, no trailing slash)
+      DOMAIN: "${DOMAIN}"
+
+      # ── TLS (handled by Caddy) ────────────────────────────────────────────
+      # Vaultwarden itself runs plain HTTP inside Docker; Caddy does TLS termination
+      # Make sure Caddy sets X-Real-IP so rate limiting works
+      # IP_HEADER: "X-Real-IP"
+
+      # ── KDF ───────────────────────────────────────────────────────────────
+      # Enforce Argon2id floor (1 = Argon2id, 0 = PBKDF2-SHA256)
+      # KDF_ALGORITHM: "1"
+
+      # ── Email / SMTP ──────────────────────────────────────────────────────
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_FROM: "${SMTP_FROM:-noreply@example.com}"
+      SMTP_FROM_NAME: "NadSafe"
+      SMTP_SECURITY: "${SMTP_SECURITY:-starttls}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+
+      # ── Logging ───────────────────────────────────────────────────────────
+      LOG_LEVEL: "warn"
+      EXTENDED_LOGGING: "false"
+      # Forward logs to syslog / ELK: mount /data/vaultwarden.log
+
+      # ── Push notifications (optional) ─────────────────────────────────────
+      # Sign up at https://bitwarden.com/host/ for a relay key pair
+      # PUSH_ENABLED: "true"
+      # PUSH_INSTALLATION_ID: "${PUSH_ID:-}"
+      # PUSH_INSTALLATION_KEY: "${PUSH_KEY:-}"
+
+      # ── WebSocket live sync ────────────────────────────────────────────────
+      WEBSOCKET_ENABLED: "true"
+
+    # Remove the exposed port — traffic flows through Caddy only
+    ports: !reset []
+
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: nadsafe-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - vaultwarden
+    environment:
+      DOMAIN: "${DOMAIN}"
+
+volumes:
+  caddy-data:
+  caddy-config:
