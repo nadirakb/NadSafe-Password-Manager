@@ -1,6 +1,9 @@
 services:
   vaultwarden:
-    image: vaultwarden/server:latest
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: nadsafe-server:dev
     container_name: nadsafe-dev-server
     restart: unless-stopped
     ports:
