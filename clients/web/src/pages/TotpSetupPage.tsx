@@ -45,7 +45,7 @@ export function TotpSetupPage() {
         : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
       const { authHash } = await deriveLoginKeys(masterPassword, user.email, kdfParams);
       const hash = toB64(authHash);
-      const setup = await getTotpSetupKey(client);
+      const setup = await getTotpSetupKey(client, hash);
       setMasterPasswordHash(hash);
       setTotpKey(setup.key ?? "");
       setAlreadyEnabled(setup.enabled);

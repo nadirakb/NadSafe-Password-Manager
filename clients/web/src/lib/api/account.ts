@@ -50,9 +50,11 @@ export async function changePassword(
 /** Get current 2FA authenticator app status + secret for enrollment. */
 export async function getTotpSetupKey(
   client: ApiClient,
+  masterPasswordHash: string,
 ): Promise<TwoFactorAuthenticatorResponse> {
-  return client.get<TwoFactorAuthenticatorResponse>(
+  return client.post<TwoFactorAuthenticatorResponse>(
     "/api/two-factor/get-authenticator",
+    { masterPasswordHash },
   );
 }
 

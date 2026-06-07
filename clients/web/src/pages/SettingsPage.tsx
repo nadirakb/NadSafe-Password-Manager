@@ -3,7 +3,7 @@ import { useAuthStore } from "../stores/auth";
 import { getApiClient } from "../lib/api/client";
 import { getVaultTimeoutMinutes, setVaultTimeoutMinutes } from "../hooks/useVaultTimeout";
 import { passwordStrength } from "../lib/password-strength";
-import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getWebAuthnCredentials, registerWebAuthn, deleteWebAuthn } from "../lib/api/account";
+import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getProfile, getWebAuthnCredentials, registerWebAuthn, deleteWebAuthn } from "../lib/api/account";
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
 import { deriveLoginKeys, wrapUserKey } from "../lib/crypto/key-hierarchy";
@@ -159,25 +159,55 @@ function ChangeMasterPassword() {
 
 function TwoFactorSetup() {
   const { user } = useAuthStore();
-  const [mode, setMode] = useState<"idle" | "setup" | "disable">("idle");
+  // "setup-pw" = collect password first; "setup-key" = show QR + confirm code
+  const [mode, setMode] = useState<"idle" | "setup-pw" | "setup-key" | "disable">("idle");
   const [totpKey, setTotpKey] = useState<string | null>(null);
   const [totpUri, setTotpUri] = useState<string | null>(null);
   const [currentPw, setCurrentPw] = useState("");
+  const [authHashB64, setAuthHashB64] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
 
-  async function startSetup() {
+  useEffect(() => {
+    getProfile(getApiClient())
+      .then((p) => setTotpEnabled(p.twoFactorEnabled))
+      .catch(() => setTotpEnabled(false));
+  }, []);
+
+  function resetSetup() {
+    setMode("idle");
+    setCurrentPw("");
+    setAuthHashB64(null);
+    setCode("");
+    setTotpKey(null);
+    setTotpUri(null);
+    setError(null);
+  }
+
+  function kdfParams() {
+    return user?.kdfType === "argon2id"
+      ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
+      : { type: "pbkdf2" as const, iterations: user?.kdfParams.iterations ?? 600000 };
+  }
+
+  async function handleGetKey(e: FormEvent) {
+    e.preventDefault();
+    if (!user?.email) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await getTotpSetupKey(getApiClient());
+      const { authHash } = await deriveLoginKeys(currentPw, user.email, kdfParams());
+      const hash = toB64(authHash);
+      const res = await getTotpSetupKey(getApiClient(), hash);
+      setAuthHashB64(hash);
       setTotpKey(res.key ?? null);
-      if (res.key && user?.email) {
+      if (res.key) {
         setTotpUri(`otpauth://totp/NadSafe:${encodeURIComponent(user.email)}?secret=${res.key}&issuer=NadSafe`);
       }
-      setMode("setup");
+      setMode("setup-key");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start 2FA setup");
     } finally {
@@ -187,26 +217,18 @@ function TwoFactorSetup() {
 
   async function handleEnable(e: FormEvent) {
     e.preventDefault();
-    if (!totpKey || !user?.email) return;
-    const kdfParams = user.kdfType === "argon2id"
-      ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
-      : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
-
+    if (!totpKey || !authHashB64) return;
     setLoading(true);
     setError(null);
     try {
-      const { authHash } = await deriveLoginKeys(currentPw, user.email, kdfParams);
       await enableTotp(getApiClient(), {
-        masterPasswordHash: toB64(authHash),
+        masterPasswordHash: authHashB64,
         token: code,
         key: totpKey,
       });
       setSuccess("Two-factor authentication enabled");
-      setMode("idle");
-      setCurrentPw("");
-      setCode("");
-      setTotpKey(null);
-      setTotpUri(null);
+      setTotpEnabled(true);
+      resetSetup();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to enable 2FA");
     } finally {
@@ -217,21 +239,17 @@ function TwoFactorSetup() {
   async function handleDisable(e: FormEvent) {
     e.preventDefault();
     if (!user?.email) return;
-    const kdfParams = user.kdfType === "argon2id"
-      ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
-      : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
-
     setLoading(true);
     setError(null);
     try {
-      const { authHash } = await deriveLoginKeys(currentPw, user.email, kdfParams);
+      const { authHash } = await deriveLoginKeys(currentPw, user.email, kdfParams());
       await disableTotp(getApiClient(), {
         masterPasswordHash: toB64(authHash),
         type: 0,
       });
       setSuccess("Two-factor authentication disabled");
-      setMode("idle");
-      setCurrentPw("");
+      setTotpEnabled(false);
+      resetSetup();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disable 2FA");
     } finally {
@@ -251,38 +269,55 @@ function TwoFactorSetup() {
             {error && <p className={styles.error}>{error}</p>}
           </div>
           <div className={styles.rowActions}>
-            <button className={styles.btnSecondary} onClick={startSetup} disabled={loading}>
-              {loading ? "Loading…" : "Set up authenticator"}
-            </button>
-            <button className={styles.btnDanger} onClick={() => { setMode("disable"); setError(null); }}>
-              Disable 2FA
-            </button>
+            {totpEnabled !== true && (
+              <button className={styles.btnSecondary} onClick={() => { setMode("setup-pw"); setError(null); }}>
+                Set up authenticator
+              </button>
+            )}
+            {totpEnabled === true && (
+              <button className={styles.btnDanger} onClick={() => { setMode("disable"); setError(null); }}>
+                Disable 2FA
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {mode === "setup" && (
+      {mode === "setup-pw" && (
+        <form onSubmit={handleGetKey} className={styles.form}>
+          <p className={styles.rowDesc}>Enter your master password to generate a setup key.</p>
+          <div className={styles.formRow}>
+            <label className={styles.formLabel}>Master password</label>
+            <input type="password" className={styles.formInput} value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)} required autoFocus />
+          </div>
+          {error && <p className={styles.error}>{error}</p>}
+          <div className={styles.rowActions}>
+            <button type="button" className={styles.btnSecondary} onClick={resetSetup}>Cancel</button>
+            <button type="submit" className={styles.btnPrimary} disabled={loading || !currentPw}>
+              {loading ? "Loading…" : "Get setup key"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {mode === "setup-key" && (
         <form onSubmit={handleEnable} className={styles.form}>
-          {totpUri && (
-            <div className={styles.qrPlaceholder}>
-              <p className={styles.qrLabel}>Scan with your authenticator app, or enter the key manually:</p>
-              <code className={styles.totpKey}>{totpKey}</code>
+          <div className={styles.qrPlaceholder}>
+            <p className={styles.qrLabel}>Scan with your authenticator app, or enter the key manually:</p>
+            <code className={styles.totpKey}>{totpKey}</code>
+            {totpUri && (
               <p className={styles.qrUriHint}>
                 Or use this URI:<br />
                 <small className={styles.totpUri}>{totpUri}</small>
               </p>
-              {totpKey && (
-                <div style={{ marginTop: "var(--space-3)" }}>
-                  <p className={styles.formLabel}>Live preview:</p>
-                  <TotpDisplay secret={totpKey} />
-                </div>
-              )}
-            </div>
-          )}
-          <div className={styles.formRow}>
-            <label className={styles.formLabel}>Master password (to confirm)</label>
-            <input type="password" className={styles.formInput} value={currentPw}
-              onChange={(e) => setCurrentPw(e.target.value)} required />
+            )}
+            {totpKey && (
+              <div style={{ marginTop: "var(--space-3)" }}>
+                <p className={styles.formLabel}>Live preview:</p>
+                <TotpDisplay secret={totpKey} />
+              </div>
+            )}
           </div>
           <div className={styles.formRow}>
             <label className={styles.formLabel}>Authenticator code (6 digits)</label>
@@ -293,7 +328,7 @@ function TwoFactorSetup() {
           </div>
           {error && <p className={styles.error}>{error}</p>}
           <div className={styles.rowActions}>
-            <button type="button" className={styles.btnSecondary} onClick={() => setMode("idle")}>Cancel</button>
+            <button type="button" className={styles.btnSecondary} onClick={resetSetup}>Cancel</button>
             <button type="submit" className={styles.btnPrimary} disabled={loading || code.length !== 6}>
               {loading ? "Enabling…" : "Enable 2FA"}
             </button>
@@ -306,11 +341,11 @@ function TwoFactorSetup() {
           <div className={styles.formRow}>
             <label className={styles.formLabel}>Master password</label>
             <input type="password" className={styles.formInput} value={currentPw}
-              onChange={(e) => setCurrentPw(e.target.value)} required />
+              onChange={(e) => setCurrentPw(e.target.value)} required autoFocus />
           </div>
           {error && <p className={styles.error}>{error}</p>}
           <div className={styles.rowActions}>
-            <button type="button" className={styles.btnSecondary} onClick={() => setMode("idle")}>Cancel</button>
+            <button type="button" className={styles.btnSecondary} onClick={resetSetup}>Cancel</button>
             <button type="submit" className={styles.btnDanger} disabled={loading}>
               {loading ? "Disabling…" : "Disable 2FA"}
             </button>
