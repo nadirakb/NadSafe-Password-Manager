@@ -44,9 +44,3 @@ services:
 
 volumes:
   vaultwarden-data:
-
----
-# Production compose override — use with:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-#
-# Requires: ADMIN_TOKEN env var, certificates in ./certs/ or Caddy/Traefik in front
