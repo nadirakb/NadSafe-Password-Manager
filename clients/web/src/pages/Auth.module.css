@@ -25,18 +25,6 @@
   margin-bottom: var(--space-8);
 }
 
-.logo {
-  width: 48px;
-  height: 48px;
-  background: var(--color-primary);
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: white;
-}
 
 .title {
   font-size: var(--font-size-xl);

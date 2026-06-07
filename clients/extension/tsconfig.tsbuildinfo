@@ -1,1 +1,1 @@
-{"root":["./src/popup/popup.tsx"],"version":"5.9.3"}
+{"root":["./src/lib/fuzzy.test.ts","./src/lib/fuzzy.ts","./src/popup/popup.tsx"],"version":"5.9.3"}

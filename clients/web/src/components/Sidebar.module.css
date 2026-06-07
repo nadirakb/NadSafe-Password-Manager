@@ -18,19 +18,6 @@
   margin-bottom: var(--space-3);
 }
 
-.logo {
-  width: 32px;
-  height: 32px;
-  background: var(--color-primary);
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: white;
-  flex-shrink: 0;
-}
 
 .brandName {
   font-size: var(--font-size-lg);

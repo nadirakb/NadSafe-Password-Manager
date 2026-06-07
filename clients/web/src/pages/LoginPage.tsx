@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useLogin } from "../hooks/useAuth";
 import { getRLState, setRLState, clearRLState, backoffSeconds } from "../lib/rateLimit";
+import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
 
 export function LoginPage() {
@@ -62,7 +63,7 @@ export function LoginPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <span className={styles.logo}>NS</span>
+          <NadSafeLogo size={48} />
           <h1 className={styles.title}>Sign in to NadSafe</h1>
         </div>
 

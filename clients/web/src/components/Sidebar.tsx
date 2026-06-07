@@ -4,6 +4,7 @@ import { useAuthStore } from "../stores/auth";
 import { useVaultStore } from "../stores/vault";
 import { clearSessionKey } from "../stores/session";
 import { useFolderActions } from "../hooks/useFolders";
+import { NadSafeLogo } from "./NadSafeLogo";
 import styles from "./Sidebar.module.css";
 
 const NAV_ITEMS = [
@@ -52,7 +53,7 @@ export function Sidebar() {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.brand}>
-        <span className={styles.logo}>NS</span>
+        <NadSafeLogo size={32} />
         <span className={styles.brandName}>NadSafe</span>
       </div>
 

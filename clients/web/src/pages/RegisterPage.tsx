@@ -4,6 +4,7 @@ import { useAuthStore } from "../stores/auth";
 import { useRegister } from "../hooks/useAuth";
 import { ShowRecoveryPhrase } from "../components/ShowRecoveryPhrase";
 import { passwordStrength } from "../lib/password-strength";
+import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
 
 export function RegisterPage() {
@@ -34,7 +35,7 @@ export function RegisterPage() {
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <span className={styles.logo}>NS</span>
+            <NadSafeLogo size={48} />
             <h1 className={styles.title}>Create your account</h1>
           </div>
 

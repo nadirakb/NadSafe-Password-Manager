@@ -7,6 +7,7 @@ import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
 import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
 import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
 import { symKeyFromBytes } from "../lib/crypto/types";
+import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
 
 export function UnlockPage() {
@@ -70,7 +71,7 @@ export function UnlockPage() {
     <div className={styles.page}>
       <div className={styles.card}>
         <div className={styles.header}>
-          <span className={styles.logo}>🔒</span>
+          <NadSafeLogo size={48} />
           <h1 className={styles.title}>Vault locked</h1>
           <p style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
             Signed in as <strong>{user?.email}</strong>

@@ -10,6 +10,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import { getApiClient } from "../lib/api/client";
 import { useAuthStore } from "../stores/auth";
+import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
 
 export function AcceptInvitePage() {
@@ -59,7 +60,7 @@ export function AcceptInvitePage() {
       <div className={styles.page}>
         <div className={styles.card}>
           <div className={styles.header}>
-            <span className={styles.logo}>NS</span>
+            <NadSafeLogo size={48} />
             <h1 className={styles.title}>Organization invitation</h1>
           </div>
           <p className={styles.hint}>
