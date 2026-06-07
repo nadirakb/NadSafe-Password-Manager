@@ -164,6 +164,7 @@ function LoginDetail({
   }
 
   if (!item.login) return null;
+  const login = item.login;
 
   return (
     <div className={styles.detail}>
@@ -181,7 +182,7 @@ function LoginDetail({
             <label className={styles.fieldLabel}>Username</label>
             <div className={styles.fieldRow}>
               <input className={styles.fieldInput} readOnly value={item.login.username} />
-              <button className={styles.copyBtn} onClick={() => copy(item.login!.username, "username")}>
+              <button className={styles.copyBtn} onClick={() => copy(login.username, "username")}>
                 {copied === "username" ? "✓" : "Copy"}
               </button>
             </div>
@@ -207,7 +208,7 @@ function LoginDetail({
                 <button className={styles.copyBtn} onClick={() => setRevealPassword((v) => !v)}>
                   {revealPassword ? "Hide" : "Show"}
                 </button>
-                <button className={styles.copyBtn} onClick={() => copy(item.login!.password, "password")}>
+                <button className={styles.copyBtn} onClick={() => copy(login.password, "password")}>
                   {copied === "password" ? "✓" : "Copy"}
                 </button>
               </div>

@@ -27,7 +27,7 @@ export function OrgDashboard() {
   }, [orgId, navigate]);
 
   if (loading) return <div className={styles.loading}>Loading…</div>;
-  if (!org) return null;
+  if (!org || !orgId) return null;
 
   const roleLabels = ["Owner", "Admin", "User", "Manager"];
 
@@ -56,7 +56,7 @@ export function OrgDashboard() {
       </nav>
 
       <div className={styles.tabContent}>
-        <Outlet context={{ org, orgId: orgId! }} />
+        <Outlet context={{ org, orgId }} />
       </div>
     </div>
   );

@@ -83,7 +83,7 @@ export function ItemModal({ item, onClose, onSaved }: Props) {
           username: encUser,
           password: encPass,
           totp: encTotp,
-          uris: url ? [{ uri: encUrl!, match: null }] : [],
+          uris: encUrl ? [{ uri: encUrl, match: null }] : [],
         };
       } else if (type === "note") {
         noteData = noteContent

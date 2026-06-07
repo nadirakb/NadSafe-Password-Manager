@@ -13,6 +13,7 @@ import {
   unwrapUserKey,
 } from "../lib/crypto/key-hierarchy";
 import { generateRsaKeyPair, decryptRsaPrivateKey } from "../lib/crypto/rsa";
+import { generateRecoveryEntropy, wrapUserKeyWithRecovery } from "../lib/crypto/recovery";
 import { symKeyFromBytes } from "../lib/crypto/types";
 import { toB64 } from "../lib/crypto/utils";
 // symKeyFromBytes used in doRegister only
@@ -231,8 +232,6 @@ export function useRegister() {
 
         // Generate recovery entropy; wrap user key with it; persist to localStorage
         // (device-local — recovery only works on same device unless user notes the phrase)
-        const { generateRecoveryEntropy, wrapUserKeyWithRecovery } =
-          await import("../lib/crypto/recovery");
         const entropy = generateRecoveryEntropy();
         const wrappedRecoveryKey = await wrapUserKeyWithRecovery(userKey, entropy);
         const rkStorageKey = `ns_rk:${cleanUrl}|${email}`;
