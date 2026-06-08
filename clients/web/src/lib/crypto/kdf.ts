@@ -1,11 +1,17 @@
 /**
  * KDF layer — browser implementation using WebCrypto (PBKDF2) and hash-wasm (Argon2id).
+ * In Tauri desktop context, Argon2id is offloaded to the native Rust command to avoid
+ * the WASM CSP restriction on Tauri's webview.
  * Matches the Bitwarden key derivation spec exactly.
  */
 
 import { argon2id } from "hash-wasm";
 import { toUtf8 } from "./utils";
 import type { KdfParams } from "./types";
+
+function isTauri(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
 
 /**
  * Derive the 32-byte master key from master password and email.
@@ -20,6 +26,21 @@ export async function deriveMasterKey(
   const salt = toUtf8(email.toLowerCase());
 
   if (params.type === "argon2id") {
+    if (isTauri()) {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const b64 = await invoke<string>("derive_master_key", {
+        req: {
+          password,
+          email,
+          m_cost: params.mCost,
+          t_cost: params.tCost,
+          p_cost: params.pCost,
+        },
+      });
+      const binary = atob(b64);
+      return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    }
+
     return argon2id({
       password: passwordBytes,
       salt,

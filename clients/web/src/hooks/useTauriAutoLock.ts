@@ -1,14 +1,18 @@
 /**
- * useTauriAutoLock — listen for Tauri window focus-restored event and lock vault.
+ * useTauriAutoLock — lock vault after 15 minutes of user inactivity.
  *
  * Only active when running inside Tauri desktop app (window.__TAURI_INTERNALS__ present).
+ * Activity resets the timer: mouse move, click, keypress, scroll, touch.
  * Safe no-op in browser / extension context.
  */
 
 import { useEffect } from "react";
 import { useAuthStore } from "../stores/auth";
 
-// Tauri 2.x runtime guard — avoids bundling tauri API in non-Tauri builds
+const INACTIVITY_MS = 15 * 60 * 1000;
+
+const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "scroll", "touchstart"] as const;
+
 function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
@@ -19,24 +23,21 @@ export function useTauriAutoLock(): void {
   useEffect(() => {
     if (!isTauri()) return;
 
-    let unlisten: (() => void) | undefined;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    // Dynamic import so the tauri bundle is only pulled in Tauri context
-    import("@tauri-apps/api/event")
-      .then(({ listen }) =>
-        listen<void>("vault:focus-restored", () => {
-          lock();
-        }),
-      )
-      .then((fn) => {
-        unlisten = fn;
-      })
-      .catch(() => {
-        // Silently ignore — non-Tauri build or older version
-      });
+    function resetTimer() {
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(lock, INACTIVITY_MS);
+    }
+
+    ACTIVITY_EVENTS.forEach((ev) =>
+      document.addEventListener(ev, resetTimer, { passive: true }),
+    );
+    resetTimer();
 
     return () => {
-      unlisten?.();
+      if (timer !== null) clearTimeout(timer);
+      ACTIVITY_EVENTS.forEach((ev) => document.removeEventListener(ev, resetTimer));
     };
   }, [lock]);
 }

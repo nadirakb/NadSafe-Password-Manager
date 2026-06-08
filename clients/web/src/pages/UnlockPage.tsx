@@ -6,7 +6,10 @@ import { initApiClient } from "../lib/api/client";
 import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
 import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
 import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
-import { symKeyFromBytes } from "../lib/crypto/types";
+import { type SymKey } from "../lib/crypto/types";
+import { isTauri } from "../lib/platform";
+import { pinIsSet, getPinLength, unlockWithPin, type PinUnlockError } from "../lib/crypto/pin";
+import { PinInput } from "../components/PinInput";
 import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
 
@@ -18,50 +21,75 @@ export function UnlockPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // PIN unlock is only offered on the desktop app and once a PIN is set.
+  const pinAvailable = isTauri() && pinIsSet();
+  const [usePin, setUsePin] = useState(pinAvailable);
+  const [pin, setPin] = useState("");
+  const pinLength = getPinLength() ?? 4;
+
+  /** Refresh the access token, install the session keys, and enter the vault. */
+  async function completeUnlock(userKey: SymKey) {
+    const client = initApiClient(serverUrl);
+    if (!storedRefreshToken) throw new Error("No refresh token — please sign in again");
+
+    const tokenRes = await refreshToken(client, storedRefreshToken, getOrCreateDeviceId());
+    client.setToken(tokenRes.access_token);
+
+    setSessionUserKey(userKey);
+
+    // Restore RSA private key for org operations.
+    // EncString must contain "|" — rejects null, empty, and legacy placeholder values.
+    if (encryptedPrivateKey && encryptedPrivateKey.includes("|")) {
+      try {
+        const rsaKey = await decryptRsaPrivateKey(encryptedPrivateKey, userKey);
+        setSessionRsaKey(rsaKey);
+      } catch {
+        // non-fatal
+      }
+    }
+
+    unlock(tokenRes.access_token);
+    navigate("/vault");
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!user) return;
     setError("");
     setLoading(true);
     try {
-      const client = initApiClient(serverUrl);
-
-      // Re-derive the stretched master key from the password
-      // mCost stored in KiB (already converted from MB during login) — use directly
+      // Re-derive the stretched master key from the password.
+      // mCost stored in KiB (already converted from MB during login) — use directly.
       const kdfParams = user.kdfType === "argon2id"
         ? { type: "argon2id" as const, mCost: user.kdfParams.mCost ?? 65536, tCost: user.kdfParams.tCost ?? 3, pCost: user.kdfParams.pCost ?? 4 }
         : { type: "pbkdf2" as const, iterations: user.kdfParams.iterations ?? 600000 };
 
       const { encKey, macKey } = await deriveLoginKeys(password, user.email, kdfParams);
-
-      // Get a fresh access token via refresh token
-      if (!storedRefreshToken) throw new Error("No refresh token — please sign in again");
       if (!encryptedUserKey) throw new Error("No vault key on file — please sign in again");
 
-      const tokenRes = await refreshToken(client, storedRefreshToken, getOrCreateDeviceId());
-      client.setToken(tokenRes.access_token);
-
-      // Unwrap user key — MAC mismatch = wrong master password
+      // Unwrap user key — MAC mismatch = wrong master password.
       const userKey = await unwrapUserKey(encryptedUserKey, { encKey, macKey });
-      setSessionUserKey(userKey);
-
-      // Restore RSA private key for org operations
-      // EncString must contain "|" — rejects null, empty, and legacy placeholder values
-      if (encryptedPrivateKey && encryptedPrivateKey.includes("|")) {
-        try {
-          const sym = symKeyFromBytes(userKey.encKey);
-          const rsaKey = await decryptRsaPrivateKey(encryptedPrivateKey, sym);
-          setSessionRsaKey(rsaKey);
-        } catch {
-          // non-fatal
-        }
-      }
-
-      unlock(tokenRes.access_token);
-      navigate("/vault");
+      await completeUnlock(userKey);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unlock failed";
       setError(msg.includes("MAC") ? "Incorrect master password" : msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handlePinUnlock(value: string) {
+    if (loading) return;
+    setError("");
+    setLoading(true);
+    try {
+      const userKey = await unlockWithPin(value);
+      await completeUnlock(userKey);
+    } catch (err) {
+      setPin("");
+      const e = err as PinUnlockError;
+      if (e.wiped) setUsePin(false); // PIN cleared after too many tries — fall back to password
+      setError(e.message || "Wrong PIN");
     } finally {
       setLoading(false);
     }
@@ -78,28 +106,68 @@ export function UnlockPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className={styles.form}>
-          <div className={styles.field}>
-            <label className={styles.label} htmlFor="password">Master password</label>
-            <input
-              id="password"
-              type="password"
-              className={styles.input}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your master password"
-              autoComplete="current-password"
+        {usePin ? (
+          <div className={styles.form}>
+            <label className={styles.label} style={{ textAlign: "center" }}>Enter your PIN</label>
+            <PinInput
+              length={pinLength}
+              value={pin}
+              onChange={setPin}
+              onComplete={handlePinUnlock}
               autoFocus
-              required
+              disabled={loading}
             />
+            {error && <p className={styles.error}>{error}</p>}
+            <button
+              type="button"
+              className={styles.submitBtn}
+              disabled={loading || pin.length < pinLength}
+              onClick={() => handlePinUnlock(pin)}
+            >
+              {loading ? "Unlocking…" : "Unlock"}
+            </button>
+            <button
+              type="button"
+              style={linkBtn}
+              onClick={() => { setUsePin(false); setError(""); }}
+            >
+              Use master password instead
+            </button>
           </div>
+        ) : (
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <div className={styles.field}>
+              <label className={styles.label} htmlFor="password">Master password</label>
+              <input
+                id="password"
+                type="password"
+                className={styles.input}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your master password"
+                autoComplete="current-password"
+                autoFocus
+                required
+              />
+            </div>
 
-          {error && <p className={styles.error}>{error}</p>}
+            {error && <p className={styles.error}>{error}</p>}
 
-          <button type="submit" className={styles.submitBtn} disabled={loading}>
-            {loading ? "Unlocking…" : "Unlock"}
-          </button>
-        </form>
+            <button type="submit" className={styles.submitBtn} disabled={loading}>
+              {loading ? "Unlocking…" : "Unlock"}
+            </button>
+
+            {pinAvailable && (
+              <button
+                type="button"
+                style={linkBtn}
+                onClick={() => { setUsePin(true); setError(""); }}
+              >
+                Use PIN instead
+              </button>
+            )}
+          </form>
+        )}
 
         <p className={styles.footer}>
           <button
@@ -113,3 +181,12 @@ export function UnlockPage() {
     </div>
   );
 }
+
+const linkBtn: React.CSSProperties = {
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+  background: "none",
+  border: "none",
+  cursor: "pointer",
+  marginTop: 4,
+};
