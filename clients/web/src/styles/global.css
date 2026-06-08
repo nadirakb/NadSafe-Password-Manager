@@ -1,4 +1,6 @@
 :root {
+  color-scheme: dark;
+
   /* Palette */
   --color-bg: #0f1117;
   --color-bg-surface: #1a1d27;

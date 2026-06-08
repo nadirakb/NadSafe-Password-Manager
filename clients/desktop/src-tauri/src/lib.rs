@@ -1,7 +1,7 @@
 mod commands;
 mod tray;
 
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
 pub fn run() {
     tauri::Builder::default()
@@ -17,7 +17,6 @@ pub fn run() {
         .setup(|app| {
             tray::setup_tray(app)?;
             setup_window_behavior(app);
-            setup_auto_lock(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -43,30 +42,3 @@ fn setup_window_behavior(app: &mut tauri::App) {
     }
 }
 
-/// Lock vault on OS session lock / screen saver / sleep.
-fn setup_auto_lock(app: &mut tauri::App) {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    let was_locked = Arc::new(AtomicBool::new(false));
-
-    let handle = app.handle().clone();
-    let was_locked_clone = was_locked.clone();
-
-    if let Some(window) = handle.get_webview_window("main") {
-        let window_clone = window.clone();
-        window.on_window_event(move |event| {
-            match event {
-                tauri::WindowEvent::Focused(false) => {
-                    was_locked_clone.store(true, Ordering::Relaxed);
-                }
-                tauri::WindowEvent::Focused(true)
-                    if was_locked_clone.swap(false, Ordering::Relaxed) =>
-                {
-                    let _ = window_clone.emit("vault:focus-restored", ());
-                }
-                _ => {}
-            }
-        });
-    }
-}
