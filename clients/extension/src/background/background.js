@@ -80,6 +80,26 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       resetLockAlarm();
       break;
 
+    case "SAVE_CREDENTIAL":
+      handleSaveCredential(message).then(sendResponse);
+      return true;
+
+    case "GET_ALIAS_CONFIG":
+      ext.storage.local.get(["aliasService", "aliasApiKey"], (cfg) => {
+        sendResponse({ configured: !!(cfg.aliasService && cfg.aliasApiKey), service: cfg.aliasService ?? null });
+      });
+      return true;
+
+    case "SAVE_ALIAS_CONFIG":
+      ext.storage.local.set({ aliasService: message.service, aliasApiKey: message.apiKey, aliasBase: message.base ?? "" }, () => {
+        sendResponse({ ok: true });
+      });
+      return true;
+
+    case "CREATE_ALIAS":
+      handleCreateAlias(message.hostname).then(sendResponse);
+      return true;
+
     default:
       sendResponse({ error: "Unknown message type" });
   }
@@ -147,6 +167,76 @@ async function handleGetItems() {
   const session = await ext.storage.session.get(["locked", "items"]);
   if (session.locked) return { items: [] };
   return { items: session.items ?? [] };
+}
+
+// ─── Save credential ─────────────────────────────────────────────────────────
+
+async function handleSaveCredential({ hostname, username, password }) {
+  const session = await ext.storage.session.get(["locked", "items"]);
+  if (session.locked) return { ok: false, error: "Vault locked" };
+
+  const newItem = {
+    id: `local-${Date.now()}`,
+    type: "login",
+    name: hostname,
+    login: {
+      username: username ?? "",
+      password: password ?? "",
+      uris: [`https://${hostname}`],
+      totp: null,
+    },
+    _local: true, // not yet synced to server
+  };
+
+  const items = [...(session.items ?? []), newItem];
+  await ext.storage.session.set({ items });
+
+  // Persist locally so it survives popup closes (but not browser restart)
+  const local = await new Promise((r) => ext.storage.local.get(["pendingItems"], r));
+  const pending = [...(local.pendingItems ?? []), newItem];
+  await new Promise((r) => ext.storage.local.set({ pendingItems: pending }, r));
+
+  return { ok: true };
+}
+
+// ─── Alias service ────────────────────────────────────────────────────────────
+
+async function handleCreateAlias(hostname) {
+  const cfg = await new Promise((resolve) => ext.storage.local.get(["aliasService", "aliasApiKey", "aliasBase"], resolve));
+  if (!cfg.aliasApiKey || !cfg.aliasService) return { ok: false, error: "Alias service not configured" };
+
+  try {
+    if (cfg.aliasService === "simplelogin") {
+      const res = await fetch("https://app.simplelogin.io/api/alias/random/new", {
+        method: "POST",
+        headers: { "Authentication": cfg.aliasApiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ hostname, note: `NadSafe — ${hostname}` }),
+      });
+      if (!res.ok) return { ok: false, error: `SimpleLogin ${res.status}` };
+      const data = await res.json();
+      return { ok: true, alias: data.email };
+    }
+
+    if (cfg.aliasService === "anonaddy") {
+      const base = (cfg.aliasBase ?? "").replace(/\/$/, "") || "https://app.anonaddy.com";
+      const res = await fetch(`${base}/api/v1/aliases`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${cfg.aliasApiKey}`,
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({ description: `NadSafe — ${hostname}` }),
+      });
+      if (!res.ok) return { ok: false, error: `AnonAddy ${res.status}` };
+      const data = await res.json();
+      return { ok: true, alias: data.data?.email ?? data.email };
+    }
+
+    return { ok: false, error: "Unknown alias service" };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 }
 
 // ─── Autofill: match URL against cached items ─────────────────────────────────
