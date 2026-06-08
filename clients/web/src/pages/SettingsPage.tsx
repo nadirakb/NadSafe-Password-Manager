@@ -7,6 +7,9 @@ import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getProfile, g
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
 import { deriveLoginKeys, wrapUserKey } from "../lib/crypto/key-hierarchy";
+import { isTauri } from "../lib/platform";
+import { pinIsSet, getPinLength, removePin } from "../lib/crypto/pin";
+import { PinSetup } from "../components/PinSetup";
 import { toB64 } from "../lib/crypto/utils";
 import { buildExportJson, buildExportCsv, downloadJson, downloadCsv } from "../lib/export";
 import { checkExtensionInstalled, pushItemsToExtension } from "../lib/extension-bridge";
@@ -588,6 +591,56 @@ function bufferToBase64Url(buf: ArrayBuffer): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
+// ─── Quick unlock PIN (desktop only) ──────────────────────────────────────────
+
+function PinSection() {
+  const [hasPin, setHasPin] = useState(pinIsSet());
+  const [length, setLength] = useState(getPinLength());
+  const [showSetup, setShowSetup] = useState(false);
+  const unlocked = !!getSessionUserKey();
+
+  function handleRemove() {
+    removePin();
+    setHasPin(false);
+    setLength(null);
+  }
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>Quick unlock PIN</h2>
+      <div className={styles.row}>
+        <div>
+          <p className={styles.rowDesc}>
+            {hasPin
+              ? `A ${length}-digit PIN can unlock this device instead of your master password.`
+              : "Set a 4 or 6-digit PIN to unlock this device quickly. Your master password still works."}
+          </p>
+        </div>
+        <div className={styles.rowActions}>
+          {hasPin ? (
+            <>
+              {unlocked && (
+                <button className={styles.btnSecondary} onClick={() => setShowSetup(true)}>Change PIN</button>
+              )}
+              <button className={styles.btnSecondary} onClick={handleRemove}>Remove PIN</button>
+            </>
+          ) : unlocked ? (
+            <button className={styles.btnSecondary} onClick={() => setShowSetup(true)}>Set PIN</button>
+          ) : (
+            <span className={styles.rowValue}>Unlock to set a PIN</span>
+          )}
+        </div>
+      </div>
+      {showSetup && (
+        <PinSetup
+          onClose={() => setShowSetup(false)}
+          onDone={() => { setShowSetup(false); setHasPin(true); setLength(getPinLength()); }}
+        />
+      )}
+    </section>
+  );
+}
+
 // ─── Extension bridge ─────────────────────────────────────────────────────────
 
 function ExtensionSection() {
@@ -704,6 +757,7 @@ export function SettingsPage() {
         <WebAuthnSection />
         <ExportSection />
         <ExtensionSection />
+        {isTauri() && <PinSection />}
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>About</h2>

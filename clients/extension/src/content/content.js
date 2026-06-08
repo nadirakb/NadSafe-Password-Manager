@@ -451,22 +451,62 @@ getIcon().addEventListener("click", async (e) => {
 window.addEventListener("scroll", () => { if (activeField) positionIcon(activeField); }, { passive: true, capture: true });
 window.addEventListener("resize", () => { if (activeField) positionIcon(activeField); }, { passive: true });
 
-// ─── AUTOFILL message from popup ─────────────────────────────────────────────
+// ─── Relay a save request to the NadSafe web app page ─────────────────────────
+//
+// Runs in the web app tab (background targets it by tab id). Forwards the
+// credential to the page, which encrypts + saves it to the server, then relays
+// the result back. The page is the only holder of the encryption key.
 
-ext.runtime.onMessage.addListener((message) => {
-  if (message.type !== "AUTOFILL") return;
-  ext.runtime.sendMessage({ type: "GET_ITEMS" }, (res) => {
-    const item = res?.items?.find((i) => i.id === message.itemId);
-    if (!item?.login) return;
-    let usernameInput = null;
-    let passwordInput = null;
-    document.querySelectorAll("input").forEach((inp) => {
-      if (!passwordInput && inp.type === "password") passwordInput = inp;
-      if (!usernameInput && classifyField(inp) === "email") usernameInput = inp;
-    });
-    if (usernameInput && item.login.username) fillField(usernameInput, item.login.username);
-    if (passwordInput && item.login.password) fillField(passwordInput, item.login.password);
+function relaySaveToWebapp(payload) {
+  return new Promise((resolve) => {
+    const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    const timeout = setTimeout(() => {
+      window.removeEventListener("message", onResult);
+      resolve({ ok: false, error: "NadSafe web app did not respond" });
+    }, 10_000);
+
+    function onResult(event) {
+      if (event.source !== window) return;
+      const d = event.data;
+      if (!d || d.source !== "nadsafe-webapp" || d.type !== "SAVE_RESULT" || d.nonce !== nonce) return;
+      clearTimeout(timeout);
+      window.removeEventListener("message", onResult);
+      resolve({ ok: !!d.ok, error: d.error });
+    }
+
+    window.addEventListener("message", onResult);
+    // Target our own origin only — never broadcast the credential.
+    window.postMessage(
+      { source: "nadsafe-extension", type: "SAVE_REQUEST", nonce, payload },
+      window.location.origin,
+    );
   });
+}
+
+// ─── Messages from popup / background ─────────────────────────────────────────
+
+ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "AUTOFILL") {
+    ext.runtime.sendMessage({ type: "GET_ITEMS" }, (res) => {
+      const item = res?.items?.find((i) => i.id === message.itemId);
+      if (!item?.login) return;
+      let usernameInput = null;
+      let passwordInput = null;
+      document.querySelectorAll("input").forEach((inp) => {
+        if (!passwordInput && inp.type === "password") passwordInput = inp;
+        if (!usernameInput && classifyField(inp) === "email") usernameInput = inp;
+      });
+      if (usernameInput && item.login.username) fillField(usernameInput, item.login.username);
+      if (passwordInput && item.login.password) fillField(passwordInput, item.login.password);
+    });
+    return;
+  }
+
+  if (message.type === "WEBAPP_SAVE") {
+    relaySaveToWebapp(message.payload).then(sendResponse);
+    return true; // async response
+  }
 });
 
 // ─── Save-login notification ──────────────────────────────────────────────────
@@ -598,15 +638,28 @@ function showSaveNotification(hostname, username, password) {
         throw new Error(res?.error ?? "Unknown error");
       }
     } catch (err) {
+      const msg = err?.message || "Save failed";
       addBtn.textContent = "Failed";
       addBtn.style.background = "#dc2626";
       addBtn.style.borderColor = "#dc2626";
+      addBtn.title = msg;
+
+      let errLine = card.querySelector("[data-nadsafe-err]");
+      if (!errLine) {
+        errLine = document.createElement("div");
+        errLine.setAttribute("data-nadsafe-err", "1");
+        errLine.style.cssText = "padding:0 14px 10px;font-size:11px;color:#fca5a5;line-height:1.4;";
+        card.appendChild(errLine);
+      }
+      errLine.textContent = msg;
+
       setTimeout(() => {
         addBtn.textContent = "Add";
         addBtn.style.background = "#3b82f6";
         addBtn.style.borderColor = "#3b82f6";
         addBtn.disabled = false;
-      }, 2500);
+        errLine?.remove();
+      }, 4000);
     }
   });
 

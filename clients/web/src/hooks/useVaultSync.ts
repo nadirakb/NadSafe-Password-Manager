@@ -14,7 +14,7 @@ const CIPHER_TYPE: Record<number, VaultItem["type"]> = {
   4: "identity",
 };
 
-async function decryptCipher(
+export async function decryptCipher(
   cipher: CipherResponse,
   userKey: SymKey,
 ): Promise<VaultItem> {

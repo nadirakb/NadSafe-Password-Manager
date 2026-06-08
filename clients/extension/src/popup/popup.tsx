@@ -1,4 +1,4 @@
-import { StrictMode, useState, useEffect } from "react";
+import { StrictMode, useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./popup.css";
 
@@ -35,7 +35,7 @@ interface VaultItem {
   login?: { username: string; password: string; uris: string[]; totp: string | null };
 }
 
-type View = "locked" | "list" | "generator" | "settings";
+type View = "locked" | "pin-unlock" | "pin-set" | "list" | "generator" | "settings";
 
 type AliasService = "" | "simplelogin" | "anonaddy";
 
@@ -49,8 +49,25 @@ function sendMsg<T>(msg: object): Promise<T> {
   );
 }
 
-async function getStatus(): Promise<{ locked: boolean }> {
-  return sendMsg({ type: "GET_STATUS" });
+interface StatusResult { locked: boolean; hasPin: boolean; pinLength: number | null }
+
+async function getStatus(): Promise<StatusResult> {
+  const res = await sendMsg<Partial<StatusResult>>({ type: "GET_STATUS" });
+  return { locked: res.locked ?? true, hasPin: !!res.hasPin, pinLength: res.pinLength ?? null };
+}
+
+interface PinResult { ok: boolean; error?: string; attemptsLeft?: number; wiped?: boolean }
+
+async function unlockWithPin(pin: string): Promise<PinResult> {
+  return sendMsg<PinResult>({ type: "UNLOCK_PIN", pin });
+}
+
+async function setPinMsg(pin: string): Promise<PinResult> {
+  return sendMsg<PinResult>({ type: "SET_PIN", pin });
+}
+
+async function removePinMsg(): Promise<void> {
+  await sendMsg({ type: "REMOVE_PIN" });
 }
 
 async function lockVault(): Promise<void> {
@@ -339,7 +356,13 @@ function GeneratorView({ onBack }: { onBack: () => void }) {
 
 // ── Settings view ─────────────────────────────────────────────────
 
-function SettingsView({ onBack }: { onBack: () => void }) {
+function SettingsView({ onBack, hasPin, vaultUnlocked, onManagePin, onRemovePin }: {
+  onBack: () => void;
+  hasPin: boolean;
+  vaultUnlocked: boolean;
+  onManagePin: () => void;
+  onRemovePin: () => void;
+}) {
   const [service, setService] = useState<AliasService>("");
   const [apiKey, setApiKey] = useState("");
   const [base, setBase] = useState("");
@@ -371,6 +394,23 @@ function SettingsView({ onBack }: { onBack: () => void }) {
         <span className="brand">Settings</span>
       </div>
       <div className="generator-body">
+        <div className="settings-group">
+          <div className="settings-label">Quick unlock PIN</div>
+          <p className="settings-hint">
+            Unlock the extension with a 4 or 6-digit PIN instead of re-syncing from the web app each time.
+          </p>
+          {hasPin ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              {vaultUnlocked && <button className="btn-outline" onClick={onManagePin}>Change PIN</button>}
+              <button className="btn-outline" onClick={onRemovePin}>Remove PIN</button>
+            </div>
+          ) : vaultUnlocked ? (
+            <button className="btn-primary" onClick={onManagePin}>Set PIN</button>
+          ) : (
+            <p className="settings-hint" style={{ color: "var(--text-disabled)" }}>Unlock the vault first to set a PIN.</p>
+          )}
+        </div>
+
         <div className="settings-group">
           <div className="settings-label">Email alias service</div>
           <p className="settings-hint">
@@ -421,6 +461,146 @@ function SettingsView({ onBack }: { onBack: () => void }) {
   );
 }
 
+// ── PIN entry ──────────────────────────────────────────────────────
+
+function PinInput({ length, value, onChange, onComplete, autoFocus }: {
+  length: number;
+  value: string;
+  onChange: (v: string) => void;
+  onComplete?: (v: string) => void;
+  autoFocus?: boolean;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (autoFocus) ref.current?.focus(); }, [autoFocus]);
+
+  return (
+    <div
+      onClick={() => ref.current?.focus()}
+      style={{ position: "relative", display: "flex", justifyContent: "center", gap: 14, padding: "10px 0", cursor: "text" }}
+    >
+      {Array.from({ length }).map((_, i) => (
+        <span key={i} style={{
+          width: 13, height: 13, borderRadius: "50%",
+          background: i < value.length ? "#3b82f6" : "transparent",
+          border: `2px solid ${i < value.length ? "#3b82f6" : "#475569"}`,
+          transition: "background 0.1s, border-color 0.1s",
+        }} />
+      ))}
+      <input
+        ref={ref}
+        type="password"
+        inputMode="numeric"
+        autoComplete="off"
+        value={value}
+        maxLength={length}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "").slice(0, length);
+          onChange(digits);
+          if (digits.length === length) onComplete?.(digits);
+        }}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, border: "none", cursor: "text" }}
+      />
+    </div>
+  );
+}
+
+function PinUnlockView({ length, onUnlocked, onWiped, onSettings }: {
+  length: number;
+  onUnlocked: () => void;
+  onWiped: () => void;
+  onSettings: () => void;
+}) {
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(value: string) {
+    if (busy || value.length < length) return;
+    setBusy(true); setError(null);
+    const res = await unlockWithPin(value);
+    setBusy(false);
+    setPin("");
+    if (res.ok) { onUnlocked(); return; }
+    if (res.wiped) { onWiped(); return; }
+    setError(res.error ?? "Wrong PIN");
+  }
+
+  return (
+    <div className="view locked-view">
+      <div className="header">
+        <NadSafeIcon />
+        <span className="brand">NadSafe</span>
+        <div className="header-actions">
+          <button className="icon-btn" onClick={onSettings} title="Settings">⚙</button>
+        </div>
+      </div>
+      <div className="locked-body">
+        <div className="lock-icon">🔒</div>
+        <p className="lock-label">Enter PIN</p>
+        <PinInput length={length} value={pin} onChange={setPin} onComplete={submit} autoFocus />
+        {error && <p style={{ color: "#fca5a5", fontSize: 12, margin: "4px 0 0" }}>{error}</p>}
+        <div className="lock-actions" style={{ marginTop: 10 }}>
+          <button className="btn-primary" disabled={busy || pin.length < length} onClick={() => submit(pin)}>
+            {busy ? "Unlocking…" : "Unlock"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PinSetView({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [length, setLength] = useState<4 | 6>(4);
+  const [stage, setStage] = useState<"enter" | "confirm">("enter");
+  const [first, setFirst] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function restart(len: 4 | 6) {
+    setLength(len); setStage("enter"); setFirst(""); setPin(""); setError(null);
+  }
+
+  async function onComplete(value: string) {
+    if (stage === "enter") {
+      setFirst(value); setPin(""); setStage("confirm"); setError(null);
+      return;
+    }
+    if (value !== first) {
+      setError("PINs don't match — start over");
+      setStage("enter"); setFirst(""); setPin("");
+      return;
+    }
+    setBusy(true); setError(null);
+    const res = await setPinMsg(value);
+    setBusy(false);
+    if (res.ok) { onDone(); return; }
+    setError(res.error ?? "Could not set PIN");
+    setStage("enter"); setFirst(""); setPin("");
+  }
+
+  return (
+    <div className="view">
+      <div className="header">
+        <button className="back-btn" onClick={onCancel}>←</button>
+        <span className="brand">{stage === "enter" ? "Set a PIN" : "Confirm PIN"}</span>
+      </div>
+      <div className="locked-body">
+        {stage === "enter" && (
+          <div className="tab-row" style={{ marginBottom: 6 }}>
+            <button className={["tab-btn", length === 4 ? "tab-active" : ""].join(" ")} onClick={() => restart(4)}>4 digits</button>
+            <button className={["tab-btn", length === 6 ? "tab-active" : ""].join(" ")} onClick={() => restart(6)}>6 digits</button>
+          </div>
+        )}
+        <p className="lock-hint">{stage === "enter" ? "Choose a quick-unlock PIN." : "Re-enter your PIN to confirm."}</p>
+        <PinInput key={stage} length={length} value={pin} onChange={setPin} onComplete={onComplete} autoFocus />
+        {busy && <p className="lock-hint">Saving…</p>}
+        {error && <p style={{ color: "#fca5a5", fontSize: 12, margin: "4px 0 0" }}>{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 // ── Root ───────────────────────────────────────────────────────────
 
 function Popup() {
@@ -429,11 +609,17 @@ function Popup() {
   const [allItems, setAllItems] = useState<VaultItem[]>([]);
   const [currentUrl, setCurrentUrl] = useState("");
   const [serverUrl, setServerUrl] = useState("http://localhost:5173");
+  const [locked, setLocked] = useState(true);
+  const [hasPin, setHasPin] = useState(false);
+  const [pinLength, setPinLength] = useState(4);
 
   useEffect(() => {
-    getStatus().then(({ locked }) => {
-      if (!locked) loadVault();
-      else setView("locked");
+    getStatus().then((status) => {
+      setLocked(status.locked);
+      setHasPin(status.hasPin);
+      if (status.pinLength) setPinLength(status.pinLength);
+      if (!status.locked) loadVault();
+      else setView(status.hasPin ? "pin-unlock" : "locked");
     });
     // Load stored serverUrl for "Open vault" links
     ext.storage.session.get(["serverUrl"]).then((s) => {
@@ -442,7 +628,14 @@ function Popup() {
     });
   }, []);
 
+  /** Pick the view to land on when leaving a sub-screen. */
+  function homeView(): View {
+    if (!locked) return "list";
+    return hasPin ? "pin-unlock" : "locked";
+  }
+
   async function loadVault() {
+    setLocked(false);
     const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
     const url = tab?.url ?? "";
     setCurrentUrl(url);
@@ -463,12 +656,46 @@ function Popup() {
 
   function handleLock() {
     lockVault();
-    setView("locked");
+    setLocked(true);
+    setView(hasPin ? "pin-unlock" : "locked");
   }
 
+  async function handleRemovePin() {
+    await removePinMsg();
+    setHasPin(false);
+  }
+
+  if (view === "pin-unlock") {
+    return (
+      <PinUnlockView
+        length={pinLength}
+        onUnlocked={loadVault}
+        onWiped={() => { setHasPin(false); setLocked(true); setView("locked"); }}
+        onSettings={() => setView("settings")}
+      />
+    );
+  }
+  if (view === "pin-set") {
+    return (
+      <PinSetView
+        onDone={() => { setHasPin(true); setView(homeView()); }}
+        onCancel={() => setView("settings")}
+      />
+    );
+  }
   if (view === "locked") return <LockedView onUnlock={loadVault} onSettings={() => setView("settings")} serverUrl={serverUrl} />;
   if (view === "generator") return <GeneratorView onBack={() => setView("list")} />;
-  if (view === "settings") return <SettingsView onBack={() => setView("list")} />;
+  if (view === "settings") {
+    return (
+      <SettingsView
+        onBack={() => setView(homeView())}
+        hasPin={hasPin}
+        vaultUnlocked={!locked}
+        onManagePin={() => setView("pin-set")}
+        onRemovePin={handleRemovePin}
+      />
+    );
+  }
   return (
     <ListView
       matches={matches}
