@@ -11,7 +11,7 @@
   },
 
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "src/popup/popup.html",
     "default_title": "NadSafe",
     "default_icon": {
       "16": "icons/icon-16.png",
@@ -20,14 +20,14 @@
   },
 
   "background": {
-    "service_worker": "src/background/background.js",
+    "service_worker": "background.js",
     "type": "module"
   },
 
   "content_scripts": [
     {
       "matches": ["https://*/*", "http://*/*"],
-      "js": ["src/content/content.js"],
+      "js": ["content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }

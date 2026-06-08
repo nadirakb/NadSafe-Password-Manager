@@ -25,6 +25,9 @@ services:
       # Domain (needed for correct CORS / cookies + WebAuthn RP ID)
       DOMAIN: "http://localhost:8000"
 
+      # Disable bundled Vaultwarden web UI — NadSafe serves its own client
+      WEB_VAULT_ENABLED: "false"
+
       # Enable WebSocket for live sync notifications
       WEBSOCKET_ENABLED: "true"
 

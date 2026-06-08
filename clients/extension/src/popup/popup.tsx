@@ -35,7 +35,9 @@ interface VaultItem {
   login?: { username: string; password: string; uris: string[]; totp: string | null };
 }
 
-type View = "locked" | "list" | "generator";
+type View = "locked" | "list" | "generator" | "settings";
+
+type AliasService = "" | "simplelogin" | "anonaddy";
 
 import { fuzzyMatch } from "../lib/fuzzy";
 
@@ -103,12 +105,15 @@ function ri(max: number): number {
 
 // ── Locked view ───────────────────────────────────────────────────
 
-function LockedView({ onUnlock, serverUrl }: { onUnlock: () => void; serverUrl: string }) {
+function LockedView({ onUnlock, onSettings, serverUrl }: { onUnlock: () => void; onSettings: () => void; serverUrl: string }) {
   return (
     <div className="view locked-view">
       <div className="header">
         <NadSafeIcon />
         <span className="brand">NadSafe</span>
+        <div className="header-actions">
+          <button className="icon-btn" onClick={onSettings} title="Settings">⚙</button>
+        </div>
       </div>
       <div className="locked-body">
         <div className="lock-icon">🔒</div>
@@ -145,6 +150,7 @@ function ListView({
   currentUrl,
   serverUrl,
   onGenerator,
+  onSettings,
   onLock,
   onSync,
 }: {
@@ -153,6 +159,7 @@ function ListView({
   currentUrl: string;
   serverUrl: string;
   onGenerator: () => void;
+  onSettings: () => void;
   onLock: () => void;
   onSync: () => void;
 }) {
@@ -197,7 +204,8 @@ function ListView({
           <button className="icon-btn" onClick={handleSync} title="Sync vault" disabled={syncing}>
             {syncing ? "…" : "↻"}
           </button>
-          <button className="icon-btn" onClick={onGenerator} title="Password generator">⚙</button>
+          <button className="icon-btn" onClick={onGenerator} title="Password generator">✦</button>
+          <button className="icon-btn" onClick={onSettings} title="Settings">⚙</button>
           <button className="icon-btn" onClick={onLock} title="Lock vault">🔒</button>
         </div>
       </div>
@@ -329,6 +337,90 @@ function GeneratorView({ onBack }: { onBack: () => void }) {
   );
 }
 
+// ── Settings view ─────────────────────────────────────────────────
+
+function SettingsView({ onBack }: { onBack: () => void }) {
+  const [service, setService] = useState<AliasService>("");
+  const [apiKey, setApiKey] = useState("");
+  const [base, setBase] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    ext.storage.local.get(["aliasService", "aliasApiKey", "aliasBase"], (cfg) => {
+      setService((cfg.aliasService as AliasService) ?? "");
+      setApiKey(cfg.aliasApiKey ?? "");
+      setBase(cfg.aliasBase ?? "");
+      setLoading(false);
+    });
+  }, []);
+
+  function handleSave() {
+    ext.storage.local.set({ aliasService: service, aliasApiKey: apiKey, aliasBase: base }, () => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
+  }
+
+  if (loading) return <div className="view"><div style={{ padding: "20px", color: "var(--text-muted)" }}>Loading…</div></div>;
+
+  return (
+    <div className="view">
+      <div className="header">
+        <button className="back-btn" onClick={onBack}>←</button>
+        <span className="brand">Settings</span>
+      </div>
+      <div className="generator-body">
+        <div className="settings-group">
+          <div className="settings-label">Email alias service</div>
+          <p className="settings-hint">
+            Create disposable aliases from email fields on any site. NadSafe fills the alias instead of your real address.
+          </p>
+          <select
+            className="settings-select"
+            value={service}
+            onChange={(e) => setService(e.target.value as AliasService)}
+          >
+            <option value="">None</option>
+            <option value="simplelogin">SimpleLogin</option>
+            <option value="anonaddy">AnonAddy</option>
+          </select>
+        </div>
+
+        {service && (
+          <div className="settings-group">
+            <div className="settings-label">API key</div>
+            <input
+              className="input settings-input"
+              type="password"
+              placeholder={service === "simplelogin" ? "SL-… (from simplelogin.io)" : "Bearer token from anonaddy.com"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+          </div>
+        )}
+
+        {service === "anonaddy" && (
+          <div className="settings-group">
+            <div className="settings-label">Instance URL <span style={{ color: "var(--text-disabled)" }}>(optional)</span></div>
+            <input
+              className="input settings-input"
+              type="url"
+              placeholder="https://app.anonaddy.com"
+              value={base}
+              onChange={(e) => setBase(e.target.value)}
+            />
+          </div>
+        )}
+
+        <button className="btn-primary" style={{ marginTop: "4px" }} onClick={handleSave}>
+          {saved ? "✓ Saved" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Root ───────────────────────────────────────────────────────────
 
 function Popup() {
@@ -374,8 +466,9 @@ function Popup() {
     setView("locked");
   }
 
-  if (view === "locked") return <LockedView onUnlock={loadVault} serverUrl={serverUrl} />;
+  if (view === "locked") return <LockedView onUnlock={loadVault} onSettings={() => setView("settings")} serverUrl={serverUrl} />;
   if (view === "generator") return <GeneratorView onBack={() => setView("list")} />;
+  if (view === "settings") return <SettingsView onBack={() => setView("list")} />;
   return (
     <ListView
       matches={matches}
@@ -383,6 +476,7 @@ function Popup() {
       currentUrl={currentUrl}
       serverUrl={serverUrl}
       onGenerator={() => setView("generator")}
+      onSettings={() => setView("settings")}
       onLock={handleLock}
       onSync={handleSync}
     />

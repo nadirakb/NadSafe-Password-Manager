@@ -5,9 +5,18 @@ use tauri::{Emitter, Manager};
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Second instance launched — bring existing window to front
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             tray::setup_tray(app)?;
+            setup_window_behavior(app);
             setup_auto_lock(app);
             Ok(())
         })
@@ -21,22 +30,25 @@ pub fn run() {
         .expect("error while running NadSafe");
 }
 
+/// Hide to tray on close instead of quitting.
+fn setup_window_behavior(app: &mut tauri::App) {
+    if let Some(window) = app.get_webview_window("main") {
+        let win = window.clone();
+        window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = win.hide();
+            }
+        });
+    }
+}
+
 /// Lock vault on OS session lock / screen saver / sleep.
-/// Uses Tauri's window focus events as a proxy — emit vault:lock when
-/// the window regains focus after the OS screen has been locked.
 fn setup_auto_lock(app: &mut tauri::App) {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
     let was_locked = Arc::new(AtomicBool::new(false));
-
-    // On macOS/Linux we can listen for window blur + focus to detect
-    // OS lock events. When the window is unfocused for a significant time
-    // after the screen goes dark, we treat re-focus as a re-lock event.
-    //
-    // A more robust approach uses tauri-plugin-os-screen-lock (not yet stable).
-    // For now: emit vault:lock when window appears after being hidden
-    // (catch-all for OS sleep/lock on all platforms).
 
     let handle = app.handle().clone();
     let was_locked_clone = was_locked.clone();
@@ -46,7 +58,6 @@ fn setup_auto_lock(app: &mut tauri::App) {
         window.on_window_event(move |event| {
             match event {
                 tauri::WindowEvent::Focused(false) => {
-                    // Window lost focus — mark as potentially locked
                     was_locked_clone.store(true, Ordering::Relaxed);
                 }
                 tauri::WindowEvent::Focused(true)

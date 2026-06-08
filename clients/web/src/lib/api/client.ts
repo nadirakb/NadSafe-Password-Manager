@@ -31,6 +31,8 @@ export class ApiClient {
   ): Promise<T> {
     const headers: Record<string, string> = {
       Accept: "application/json",
+      "Bitwarden-Client-Name": "web",
+      "Bitwarden-Client-Version": "2024.1.0",
     };
 
     if (!options.noAuth && this.accessToken) {

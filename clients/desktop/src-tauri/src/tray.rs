@@ -11,7 +11,12 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
 
     let menu = Menu::with_items(app, &[&open, &lock, &quit])?;
 
+    let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
+        .expect("tray icon load failed");
+
     TrayIconBuilder::new()
+        .icon(icon)
+        .tooltip("NadSafe")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {

@@ -4,6 +4,7 @@ import { viteStaticCopy } from "vite-plugin-static-copy";
 import { resolve } from "path";
 
 export default defineConfig({
+  base: "./",
   plugins: [
     react(),
     // Copy manifest + icons to dist so the extension loads correctly

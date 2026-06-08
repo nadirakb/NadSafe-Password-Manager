@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.nadsafe.app",
   "build": {
-    "frontendDist": "../../clients/web/dist",
+    "frontendDist": "../../../clients/web/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../../.. && npm run dev:web",
-    "beforeBuildCommand": "cd ../../.. && npm run build:web"
+    "beforeDevCommand": "cd ../.. && npm run dev:web",
+    "beforeBuildCommand": "cd ../.. && npm run build:web"
   },
   "app": {
     "windows": [
@@ -23,12 +23,12 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:* https://*"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["appimage"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
