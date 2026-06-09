@@ -10,26 +10,63 @@
 const ext = typeof browser !== "undefined" ? browser : chrome;
 
 // ─── Web app bridge ───────────────────────────────────────────────────────────
+//
+// This content script is injected into EVERY page. State-changing bridge
+// messages (PUSH_SESSION / PUSH_ITEMS) hand the extension session keys, vault
+// items, and the web-app tab identity — so they must only be honored from the
+// real NadSafe web app. We require both:
+//   1. event.source === window  — reject messages relayed up from child frames
+//      (e.g. a third-party ad iframe posting to window.parent).
+//   2. event.origin === the user-configured web-app origin (storage.local).
+// Without this, any site could unlock the extension, poison autofill items, or
+// hijack the save-relay target and exfiltrate plaintext credentials.
 
-window.addEventListener("message", (event) => {
+let trustedOriginCache; // undefined = not yet loaded; null = unset
+async function getTrustedOrigin() {
+  if (trustedOriginCache !== undefined) return trustedOriginCache;
+  try {
+    const r = await ext.storage.local.get("webAppOrigin");
+    trustedOriginCache = r.webAppOrigin || null;
+  } catch {
+    trustedOriginCache = null;
+  }
+  return trustedOriginCache;
+}
+ext.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.webAppOrigin) {
+    trustedOriginCache = changes.webAppOrigin.newValue || null;
+  }
+});
+
+window.addEventListener("message", async (event) => {
+  if (event.source !== window) return; // ignore cross-frame relays
   if (!event.data || typeof event.data !== "object") return;
   if (event.data.source !== "nadsafe-webapp") return;
   const { type, payload } = event.data;
+
+  // Presence ping reveals only the extension version — safe to answer from any
+  // origin so the web app can detect the extension before pairing.
+  if (type === "PING") {
+    window.postMessage({ source: "nadsafe-extension", type: "PONG", version: ext.runtime.getManifest().version }, event.origin);
+    return;
+  }
+
+  // Everything below moves secrets — gate on the configured web-app origin.
+  const trusted = await getTrustedOrigin();
+  if (!trusted || event.origin !== trusted) return;
+
   switch (type) {
     case "PUSH_SESSION":
       ext.runtime.sendMessage({ type: "UNLOCK", ...payload }, (res) => {
-        window.postMessage({ source: "nadsafe-extension", type: "SESSION_RESULT", ok: res?.ok ?? false, error: res?.error }, "*");
+        window.postMessage({ source: "nadsafe-extension", type: "SESSION_RESULT", ok: res?.ok ?? false, error: res?.error }, event.origin);
       });
       break;
     case "PUSH_ITEMS":
       ext.runtime.sendMessage({ type: "STORE_ITEMS", items: payload.items });
       break;
-    case "PING":
-      window.postMessage({ source: "nadsafe-extension", type: "PONG", version: ext.runtime.getManifest().version }, "*");
-      break;
   }
 });
-window.postMessage({ source: "nadsafe-extension", type: "READY" }, "*");
+window.postMessage({ source: "nadsafe-extension", type: "READY" }, window.location.origin);
 
 // ─── Password generator ────────────────────────────────────────────────────────
 
