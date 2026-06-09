@@ -58,7 +58,7 @@ impl Attachment {
         let operator = CONFIG.opendal_operator_for_path_type(&PathType::Attachments)?;
 
         if crate::storage::is_fs_operator(&operator) {
-            let token = encode_jwt(&generate_file_download_claims(self.cipher_uuid.clone(), self.id.clone()));
+            let token = encode_jwt(&generate_file_download_claims(self.cipher_uuid.clone(), self.id.clone()))?;
             Ok(format!("{host}/attachments/{}/{}?token={token}", self.cipher_uuid, self.id))
         } else {
             Ok(operator.presign_read(&self.get_file_path(), Duration::from_mins(5)).await?.uri().to_string())

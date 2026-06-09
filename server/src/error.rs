@@ -121,6 +121,7 @@ impl std::fmt::Debug for Error {
                     }
                 }
                 ErrorKind::Json(_) => write!(f, "{}", self.message),
+                ErrorKind::Compact(_) => write!(f, "{}", self.message),
                 _ => unreachable!(),
             },
         }

@@ -572,7 +572,7 @@ async fn download_url(host: &Host, send_id: &SendId, file_id: &SendFileId) -> Re
 
     if crate::storage::is_fs_operator(&operator) {
         let token_claims = crate::auth::generate_send_claims(send_id, file_id);
-        let token = crate::auth::encode_jwt(&token_claims);
+        let token = crate::auth::encode_jwt(&token_claims)?;
 
         Ok(format!("{}/api/sends/{send_id}/{file_id}?t={token}", host.host))
     } else {

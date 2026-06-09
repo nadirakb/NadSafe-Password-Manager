@@ -78,8 +78,12 @@ export async function setPin(pin: string, userKey: SymKey): Promise<void> {
     salt: toArr(salt), iv: toArr(iv), wrapped: toArr(wrapped),
     iterations: ITERATIONS, length: pin.length,
   };
-  localStorage.setItem(BLOB_KEY, JSON.stringify(blob));
+  // Clear the attempt counter BEFORE writing the blob. If the process crashes
+  // between the two writes the worst outcome is the blob is absent and the user
+  // must unlock with their master password — better than a stale high-attempts
+  // counter pairing with the new blob and triggering an immediate wipe.
   localStorage.removeItem(ATTEMPTS_KEY);
+  localStorage.setItem(BLOB_KEY, JSON.stringify(blob));
 }
 
 export interface PinUnlockError extends Error {

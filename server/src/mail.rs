@@ -170,7 +170,7 @@ pub async fn send_password_hint(address: &str, hint: Option<String>) -> EmptyRes
 
 pub async fn send_delete_account(address: &str, user_id: &UserId) -> EmptyResult {
     let claims = generate_delete_claims(user_id.to_string());
-    let delete_token = encode_jwt(&claims);
+    let delete_token = encode_jwt(&claims)?;
 
     let (subject, body_html, body_text) = get_text(
         "email/delete_account",
@@ -188,7 +188,7 @@ pub async fn send_delete_account(address: &str, user_id: &UserId) -> EmptyResult
 
 pub async fn send_verify_email(address: &str, user_id: &UserId) -> EmptyResult {
     let claims = generate_verify_email_claims(user_id);
-    let verify_email_token = encode_jwt(&claims);
+    let verify_email_token = encode_jwt(&claims)?;
 
     let (subject, body_html, body_text) = get_text(
         "email/verify_email",
@@ -238,7 +238,7 @@ pub async fn send_welcome(address: &str) -> EmptyResult {
 
 pub async fn send_welcome_must_verify(address: &str, user_id: &UserId) -> EmptyResult {
     let claims = generate_verify_email_claims(user_id);
-    let verify_email_token = encode_jwt(&claims);
+    let verify_email_token = encode_jwt(&claims)?;
 
     let (subject, body_html, body_text) = get_text(
         "email/welcome_must_verify",
@@ -293,7 +293,7 @@ pub async fn send_invite(
         member_id.clone(),
         invited_by_email,
     );
-    let invite_token = encode_jwt(&claims);
+    let invite_token = encode_jwt(&claims)?;
     let mut query = url::Url::parse("https://query.builder").unwrap();
     {
         let mut query_params = query.query_pairs_mut();
@@ -352,7 +352,7 @@ pub async fn send_emergency_access_invite(
             .append_pair("id", &emer_id.to_string())
             .append_pair("name", grantor_name)
             .append_pair("email", address)
-            .append_pair("token", &encode_jwt(&claims));
+            .append_pair("token", &encode_jwt(&claims)?);
     }
 
     let Some(query_string) = query.query() else {

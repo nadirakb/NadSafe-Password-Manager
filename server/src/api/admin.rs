@@ -202,7 +202,7 @@ fn post_admin_login(
     if validate_token(&data.token) {
         // If the token received is valid, generate JWT and save it as a cookie
         let claims = generate_admin_claims();
-        let jwt = encode_jwt(&claims);
+        let jwt = encode_jwt(&claims).map_err(|_| AdminResponse::Unauthorized(render_admin_login(Some("JWT encoding error"), redirect.as_deref())))?;
 
         let cookie = Cookie::build((COOKIE_NAME, jwt))
             .path(admin_path())
