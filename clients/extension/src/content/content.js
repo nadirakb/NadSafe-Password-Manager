@@ -64,6 +64,15 @@ window.addEventListener("message", async (event) => {
     case "PUSH_ITEMS":
       ext.runtime.sendMessage({ type: "STORE_ITEMS", items: payload.items });
       break;
+    case "PUSH_PIN":
+      // Web app shares the user's PIN so the extension unlocks with the same
+      // digits. Background wraps its DEK under this PIN (requires the vault
+      // already pushed/unlocked this session).
+      ext.runtime.sendMessage({ type: "SET_PIN", pin: payload.pin });
+      break;
+    case "REMOVE_PIN":
+      ext.runtime.sendMessage({ type: "REMOVE_PIN" });
+      break;
   }
 });
 window.postMessage({ source: "nadsafe-extension", type: "READY" }, window.location.origin);

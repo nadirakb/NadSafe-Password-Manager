@@ -11,7 +11,7 @@ import { pinIsSet, getPinLength, removePin } from "../lib/crypto/pin";
 import { PinSetup } from "../components/PinSetup";
 import { toB64 } from "../lib/crypto/utils";
 import { buildExportJson, buildExportCsv, downloadJson, downloadCsv } from "../lib/export";
-import { checkExtensionInstalled, pushItemsToExtension } from "../lib/extension-bridge";
+import { checkExtensionInstalled, pushItemsToExtension, removePinFromExtension } from "../lib/extension-bridge";
 import { TotpDisplay } from "../components/TotpDisplay";
 import styles from "./Settings.module.css";
 
@@ -600,6 +600,7 @@ function PinSection() {
 
   function handleRemove() {
     removePin();
+    void removePinFromExtension(); // keep the extension's PIN in step
     setHasPin(false);
     setLength(null);
   }

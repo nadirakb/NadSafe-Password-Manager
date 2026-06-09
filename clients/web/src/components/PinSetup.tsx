@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from "react";
 import { PinInput } from "./PinInput";
 import { setPin } from "../lib/crypto/pin";
 import { getSessionUserKey } from "../stores/session";
+import { pushPinToExtension } from "../lib/extension-bridge";
 
 /** Modal: choose a 4/6-digit PIN, confirm it, and wrap the user key under it. */
 export function PinSetup({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -31,6 +32,8 @@ export function PinSetup({ onClose, onDone }: { onClose: () => void; onDone: () 
     setBusy(true); setError(null);
     try {
       await setPin(value, userKey);
+      // Share the same PIN with the extension (same browser, set once).
+      void pushPinToExtension(value);
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not set PIN");
