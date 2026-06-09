@@ -7,7 +7,6 @@ import { changePassword, getTotpSetupKey, enableTotp, disableTotp, getProfile, g
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
 import { deriveLoginKeys, wrapUserKey } from "../lib/crypto/key-hierarchy";
-import { isTauri } from "../lib/platform";
 import { pinIsSet, getPinLength, removePin } from "../lib/crypto/pin";
 import { PinSetup } from "../components/PinSetup";
 import { toB64 } from "../lib/crypto/utils";
@@ -591,7 +590,7 @@ function bufferToBase64Url(buf: ArrayBuffer): string {
   return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
 
-// ─── Quick unlock PIN (desktop only) ──────────────────────────────────────────
+// ─── Quick unlock PIN ─────────────────────────────────────────────────────────
 
 function PinSection() {
   const [hasPin, setHasPin] = useState(pinIsSet());
@@ -757,7 +756,7 @@ export function SettingsPage() {
         <WebAuthnSection />
         <ExportSection />
         <ExtensionSection />
-        {isTauri() && <PinSection />}
+        <PinSection />
 
         <section className={styles.section}>
           <h2 className={styles.sectionTitle}>About</h2>

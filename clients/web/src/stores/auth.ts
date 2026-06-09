@@ -96,7 +96,12 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "nadsafe-auth",
-      storage: createJSONStorage(() => sessionStorage),
+      // localStorage (not sessionStorage) so the session survives a full browser
+      // restart. Only non-secret-at-rest material is persisted (see partialize):
+      // the user key is stored *encrypted* and the in-memory plaintext key lives
+      // in session.ts, which is cleared on reload — so a restart lands on /unlock
+      // (re-derive with master password / PIN), never a full re-login.
+      storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
         user: s.user,

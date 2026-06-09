@@ -383,27 +383,53 @@ async function aesDecrypt(key, ivArr, dataArr) {
   return new Uint8Array(pt);
 }
 
-// Re-encrypt the at-rest items snapshot — only when a DEK is in memory (the DEK
+// Re-encrypt the at-rest session snapshot — only when a DEK is in memory (the DEK
 // must stay paired with the wrapped DEK, so we never write a blob the PIN can't open).
+//
+// The blob holds the full session needed to resume after a browser restart:
+// items (autofill), plus serverUrl/accessToken so the "Open vault" link and
+// server sync keep working post-unlock. Stored as { items, serverUrl,
+// accessToken } — see unwrapVaultBundle for the legacy bare-array fallback.
 async function refreshVaultBlob(items) {
-  const s = await ext.storage.session.get(["dek"]);
+  const s = await ext.storage.session.get(["dek", "serverUrl", "accessToken"]);
   if (!s.dek) return;
   const dekKey = await importDek(s.dek);
-  const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(items ?? [])));
+  const bundle = {
+    items: items ?? [],
+    serverUrl: s.serverUrl ?? "",
+    accessToken: s.accessToken ?? null,
+  };
+  const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
   await ext.storage.local.set({ vaultBlob });
+}
+
+// Decrypted vaultBlob → normalized bundle. Tolerates the legacy format where the
+// blob was a bare items array (pre-session-persistence builds).
+function unwrapVaultBundle(parsed) {
+  if (Array.isArray(parsed)) return { items: parsed, serverUrl: "", accessToken: null };
+  return {
+    items: parsed.items ?? [],
+    serverUrl: parsed.serverUrl ?? "",
+    accessToken: parsed.accessToken ?? null,
+  };
 }
 
 async function handleSetPin({ pin }) {
   if (!/^(\d{4}|\d{6})$/.test(pin || "")) return { ok: false, error: "PIN must be 4 or 6 digits" };
 
-  const session = await ext.storage.session.get(["locked", "items", "dek"]);
+  const session = await ext.storage.session.get(["locked", "items", "dek", "serverUrl", "accessToken"]);
   if (session.locked) return { ok: false, error: "Unlock the vault before setting a PIN" };
 
   // Reuse the in-memory DEK if present (changing PIN), else mint a fresh one.
   const dekArr = session.dek ?? toArr(randomBytes(32));
   const dekKey = await importDek(dekArr);
 
-  const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(session.items ?? [])));
+  const bundle = {
+    items: session.items ?? [],
+    serverUrl: session.serverUrl ?? "",
+    accessToken: session.accessToken ?? null,
+  };
+  const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
 
   const salt = randomBytes(16);
   const pinKey = await derivePinKey(pin, salt, PIN_ITERATIONS);
@@ -427,10 +453,18 @@ async function handleUnlockPin({ pin }) {
     const pinKey = await derivePinKey(pin, toU8(local.pin.salt), local.pin.iterations);
     const dek = await aesDecrypt(pinKey, local.pin.iv, local.pin.wrapped); // throws on wrong PIN (GCM tag)
     const dekKey = await importDek(toArr(dek));
-    const itemsBytes = await aesDecrypt(dekKey, local.vaultBlob.iv, local.vaultBlob.data);
-    const items = JSON.parse(td.decode(itemsBytes));
+    const blobBytes = await aesDecrypt(dekKey, local.vaultBlob.iv, local.vaultBlob.data);
+    const bundle = unwrapVaultBundle(JSON.parse(td.decode(blobBytes)));
 
-    await ext.storage.session.set({ locked: false, items, dek: toArr(dek) });
+    // Restore the full session so autofill, the "Open vault" link, and server
+    // sync resume without a fresh web-app push.
+    await ext.storage.session.set({
+      locked: false,
+      items: bundle.items,
+      serverUrl: bundle.serverUrl,
+      accessToken: bundle.accessToken,
+      dek: toArr(dek),
+    });
     await ext.storage.local.set({ pinAttempts: 0 });
     resetLockAlarm();
     return { ok: true };

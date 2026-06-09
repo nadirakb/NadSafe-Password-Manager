@@ -6,10 +6,12 @@
  * be unlocked with a 4/6-digit PIN instead of the full master password.
  *
  * Security: a low-entropy PIN protects the vault key at rest, so the blob is
- * brute-forceable if exfiltrated. Mitigated by a heavy KDF (600k iterations) and
- * a 5-attempt wipe that forces a full master-password unlock. Gated to the Tauri
- * desktop shell (a trusted single-user device) — the browser web app never
- * writes this blob.
+ * brute-forceable if exfiltrated (XSS, or local disk access). Mitigated by a
+ * heavy KDF (600k iterations) and a 5-attempt wipe that forces a full
+ * master-password unlock. Available on both the Tauri desktop shell and the
+ * browser web app as an opt-in convenience — the user enables it explicitly in
+ * Settings, accepting the at-rest tradeoff for quick unlock after a browser
+ * restart (same model as Bitwarden's optional PIN unlock).
  */
 
 import { symKeyToBytes, symKeyFromBytes, type SymKey } from "./types";
