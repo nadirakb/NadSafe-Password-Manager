@@ -170,9 +170,18 @@ jobs:
     if: always()
     steps:
       - name: check all jobs
+        env:
+          # Space-separated result of every needed job (success/failure/skipped/cancelled).
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
+          echo "Job results: $RESULTS"
+          # Require every upstream job to have succeeded. A failed npm install, for
+          # example, leaves dependent jobs 'skipped' (not 'failure') — those must
+          # not slip through as a green gate.
+          for r in $RESULTS; do
+            if [[ "$r" != "success" ]]; then
+              echo "CI gate failed: a required job did not succeed ($r)"
+              exit 1
+            fi
+          done
           echo "All CI jobs passed"

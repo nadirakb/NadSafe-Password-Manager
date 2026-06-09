@@ -363,6 +363,8 @@ function SettingsView({ onBack, hasPin, vaultUnlocked, onManagePin, onRemovePin 
   onManagePin: () => void;
   onRemovePin: () => void;
 }) {
+  const [webAppOrigin, setWebAppOrigin] = useState("");
+  const [originError, setOriginError] = useState<string | null>(null);
   const [service, setService] = useState<AliasService>("");
   const [apiKey, setApiKey] = useState("");
   const [base, setBase] = useState("");
@@ -370,7 +372,8 @@ function SettingsView({ onBack, hasPin, vaultUnlocked, onManagePin, onRemovePin 
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    ext.storage.local.get(["aliasService", "aliasApiKey", "aliasBase"], (cfg) => {
+    ext.storage.local.get(["webAppOrigin", "aliasService", "aliasApiKey", "aliasBase"], (cfg) => {
+      setWebAppOrigin(cfg.webAppOrigin ?? "");
       setService((cfg.aliasService as AliasService) ?? "");
       setApiKey(cfg.aliasApiKey ?? "");
       setBase(cfg.aliasBase ?? "");
@@ -379,10 +382,23 @@ function SettingsView({ onBack, hasPin, vaultUnlocked, onManagePin, onRemovePin 
   }, []);
 
   function handleSave() {
-    ext.storage.local.set({ aliasService: service, aliasApiKey: apiKey, aliasBase: base }, () => {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    });
+    let origin = webAppOrigin.trim();
+    if (origin) {
+      try {
+        origin = new URL(origin).origin; // normalize to scheme://host[:port]
+      } catch {
+        setOriginError("Enter a valid URL, e.g. https://vault.example.com");
+        return;
+      }
+    }
+    setOriginError(null);
+    ext.storage.local.set(
+      { webAppOrigin: origin, aliasService: service, aliasApiKey: apiKey, aliasBase: base },
+      () => {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      },
+    );
   }
 
   if (loading) return <div className="view"><div style={{ padding: "20px", color: "var(--text-muted)" }}>Loading…</div></div>;
@@ -394,6 +410,21 @@ function SettingsView({ onBack, hasPin, vaultUnlocked, onManagePin, onRemovePin 
         <span className="brand">Settings</span>
       </div>
       <div className="generator-body">
+        <div className="settings-group">
+          <div className="settings-label">NadSafe web app URL</div>
+          <p className="settings-hint">
+            The extension only accepts vault data pushed from this origin. Set it to your NadSafe web app, e.g. <code>https://vault.example.com</code>.
+          </p>
+          <input
+            className="input settings-input"
+            type="url"
+            placeholder="http://localhost:5173"
+            value={webAppOrigin}
+            onChange={(e) => setWebAppOrigin(e.target.value)}
+          />
+          {originError && <p className="settings-hint" style={{ color: "#f87171" }}>{originError}</p>}
+        </div>
+
         <div className="settings-group">
           <div className="settings-label">Quick unlock PIN</div>
           <p className="settings-hint">

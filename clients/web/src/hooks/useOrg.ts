@@ -21,8 +21,28 @@ import {
 } from "../lib/crypto/key-hierarchy";
 import { symKeyFromBytes } from "../lib/crypto/types";
 import { rsaEncrypt, rsaDecrypt, importRsaPublicKey } from "../lib/crypto/rsa";
-import { toB64 } from "../lib/crypto/utils";
 import { useAuthStore } from "../stores/auth";
+
+/**
+ * Resolve the current account's RSA public key as a CryptoKey.
+ * Prefers the value cached in the auth store; otherwise fetches it from the
+ * profile endpoint and caches it. Throws if the account has no public key —
+ * callers must not fall back to storing keys unencrypted.
+ */
+async function resolveOwnPublicKey(client: ReturnType<typeof getApiClient>): Promise<CryptoKey> {
+  let pubKeyB64 = useAuthStore.getState().user?.publicKey ?? null;
+  if (!pubKeyB64) {
+    const profile = await client
+      .get<{ publicKey?: string; publickey?: string }>("/api/accounts/profile")
+      .catch(() => null);
+    pubKeyB64 = profile?.publicKey ?? profile?.publickey ?? null;
+    if (pubKeyB64) useAuthStore.getState().setPublicKey(pubKeyB64);
+  }
+  if (!pubKeyB64) {
+    throw new Error("Cannot create organization: your account public key is unavailable");
+  }
+  return importRsaPublicKey(pubKeyB64);
+}
 
 /** Create a new organization. Generates org symmetric key, RSA-encrypts to owner. */
 export function useCreateOrg() {
@@ -48,27 +68,13 @@ export function useCreateOrg() {
         const orgKeyBytes = generateUserKey();
         const orgSymKey = symKeyFromBytes(new Uint8Array(orgKeyBytes));
 
-        // 2. Get owner's RSA public key from profile (need to fetch it)
-        // For simplicity in Phase 2: use sync profile.publicKey
-        // The public key is stored in the vault profile — we need to fetch it
-        // TODO: cache public key in auth store
-        // For now: create org with a self-encrypted key using user sym key as fallback
-        // This is a simplification — real org sharing needs RSA
-
-        // Encrypt org key with user's symmetric key as owner key (self-wrapping)
-        // In production, this would be RSA-encrypted to the user's public key
-        const encOrgKeyForOwner = await (async () => {
-          // Try RSA encryption first
-          const profile = await client.get<{ publicKey?: string }>("/api/accounts/profile").catch(() => null);
-          const pubKeyB64 = (profile as { publicKey?: string; publickey?: string } | null)?.publicKey
-            ?? (profile as { publicKey?: string; publickey?: string } | null)?.publickey;
-          if (pubKeyB64) {
-            const pubKey = await importRsaPublicKey(pubKeyB64).catch(() => null);
-            if (pubKey) return rsaEncrypt(new Uint8Array(orgKeyBytes), pubKey);
-          }
-          // Fallback: base64-encode the org key (dev only — not secure)
-          return toB64(new Uint8Array(orgKeyBytes));
-        })();
+        // 2. RSA-encrypt the org key to the owner's public key.
+        // Resolve the public key from the auth store, falling back to the
+        // profile endpoint (and caching it). No plaintext fallback: storing the
+        // org key unencrypted would hand the server the org's vault key and
+        // break zero-knowledge, so org creation fails closed if it is missing.
+        const ownerPubKey = await resolveOwnPublicKey(client);
+        const encOrgKeyForOwner = await rsaEncrypt(new Uint8Array(orgKeyBytes), ownerPubKey);
 
         // 3. Encrypt first collection name with org key
         const encCollectionName = await encryptField(firstCollectionName, orgSymKey);

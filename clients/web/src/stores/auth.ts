@@ -33,6 +33,8 @@ interface AuthState {
   setRequires2FASetup: (v: boolean) => void;
 
   setServerUrl: (url: string) => void;
+  /** Cache the account's RSA public key (base64 DER) for org key operations. */
+  setPublicKey: (publicKey: string) => void;
   login: (
     user: AuthUser,
     accessToken: string,
@@ -61,6 +63,9 @@ export const useAuthStore = create<AuthState>()(
       setRequires2FASetup: (v) => set({ requires2FASetup: v }),
 
       setServerUrl: (url) => set({ serverUrl: url.replace(/\/$/, "") }),
+
+      setPublicKey: (publicKey) =>
+        set((s) => (s.user ? { user: { ...s.user, publicKey } } : {})),
 
       login: (user, accessToken, refreshToken, encryptedUserKey, encryptedPrivateKey) =>
         set({

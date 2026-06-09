@@ -1,7 +1,8 @@
 //! EncString — the Bitwarden-compatible encrypted payload format.
 //!
 //! Format: `{type}.{iv_b64}|{ct_b64}|{mac_b64}`
-//! Type 2 = AES-256-CBC + HMAC-SHA256 (the only type we generate; we also parse type 0 for legacy compat).
+//! Type 2 = AES-256-CBC + HMAC-SHA256 — the only type we generate or accept;
+//! `parse` rejects every other type byte.
 //!
 //! The MAC covers: IV || ciphertext (no key commitment — matches the Bitwarden spec).
 

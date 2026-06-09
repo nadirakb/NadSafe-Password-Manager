@@ -11,14 +11,6 @@ import type { VaultItem } from "../stores/vault";
 const WEBAPP_SOURCE = "nadsafe-webapp";
 const EXT_SOURCE = "nadsafe-extension";
 
-type ExtMessage = {
-  source: string;
-  type: string;
-  version?: string;
-  ok?: boolean;
-  error?: string;
-};
-
 /** Check if NadSafe extension is installed by pinging its content script. */
 export function checkExtensionInstalled(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -36,33 +28,20 @@ export function checkExtensionInstalled(): Promise<boolean> {
     }
 
     window.addEventListener("message", onMessage);
-    window.postMessage({ source: WEBAPP_SOURCE, type: "PING" }, "*");
+    // Post to our own origin only — the content-script bridge runs in this page.
+    window.postMessage({ source: WEBAPP_SOURCE, type: "PING" }, window.location.origin);
   });
 }
 
-/** Push decrypted vault items to the extension for autofill. */
+/**
+ * Push decrypted vault items to the extension for autofill. Fire-and-forget:
+ * the content-script bridge forwards them to the background worker with no ack.
+ * Targets our own origin so the credential payload never leaves this page.
+ */
 export function pushItemsToExtension(items: VaultItem[]): Promise<boolean> {
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve(false), 2000);
-
-    function onMessage(event: MessageEvent<ExtMessage>) {
-      if (event.data?.source === EXT_SOURCE && event.data?.type === "SESSION_RESULT") {
-        clearTimeout(timeout);
-        window.removeEventListener("message", onMessage);
-        resolve(event.data.ok ?? false);
-      }
-    }
-
-    // Send items via PUSH_ITEMS (no auth needed — items already decrypted)
-    window.postMessage({
-      source: WEBAPP_SOURCE,
-      type: "PUSH_ITEMS",
-      payload: { items },
-    }, "*");
-
-    // Also set extension as connected
-    window.addEventListener("message", onMessage);
-    resolve(true); // PUSH_ITEMS is fire-and-forget
-    clearTimeout(timeout);
-  });
+  window.postMessage(
+    { source: WEBAPP_SOURCE, type: "PUSH_ITEMS", payload: { items } },
+    window.location.origin,
+  );
+  return Promise.resolve(true);
 }

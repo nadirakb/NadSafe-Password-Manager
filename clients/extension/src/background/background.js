@@ -29,6 +29,12 @@ const PIN_MAX_ATTEMPTS = 5;
 ext.runtime.onInstalled.addListener(() => {
   ext.storage.session.set({ locked: true });
   scheduleLock(DEFAULT_LOCK_MINUTES);
+  // Seed the trusted web-app origin (dev default) only if the user hasn't set
+  // one. The content-script bridge rejects PUSH_ITEMS/PUSH_SESSION from any
+  // other origin, so this gates which page may drive the extension.
+  ext.storage.local.get("webAppOrigin", (r) => {
+    if (!r.webAppOrigin) ext.storage.local.set({ webAppOrigin: "http://localhost:5173" });
+  });
 });
 
 ext.alarms.onAlarm.addListener((alarm) => {
@@ -53,8 +59,10 @@ function resetLockAlarm() {
 
 // Any of these messages means the vault is actively in use — push back the
 // 15-minute idle lock so active use never locks mid-session.
+// GET_STATUS is deliberately excluded: it is a passive poll (popup open, content
+// script init) and must not keep the vault unlocked indefinitely.
 const ACTIVITY_TYPES = new Set([
-  "GET_STATUS", "GET_ITEMS", "AUTOFILL_QUERY", "SYNC", "SAVE_CREDENTIAL", "CREATE_ALIAS",
+  "GET_ITEMS", "AUTOFILL_QUERY", "SYNC", "SAVE_CREDENTIAL", "CREATE_ALIAS",
   "SET_PIN", "UNLOCK_PIN",
 ]);
 
