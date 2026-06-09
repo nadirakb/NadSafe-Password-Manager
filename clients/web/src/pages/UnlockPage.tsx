@@ -7,7 +7,6 @@ import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
 import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
 import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
 import { type SymKey } from "../lib/crypto/types";
-import { isTauri } from "../lib/platform";
 import { pinIsSet, getPinLength, unlockWithPin, type PinUnlockError } from "../lib/crypto/pin";
 import { PinInput } from "../components/PinInput";
 import { NadSafeLogo } from "../components/NadSafeLogo";
@@ -21,8 +20,8 @@ export function UnlockPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // PIN unlock is only offered on the desktop app and once a PIN is set.
-  const pinAvailable = isTauri() && pinIsSet();
+  // PIN unlock is offered once the user has set a PIN (desktop or web).
+  const pinAvailable = pinIsSet();
   const [usePin, setUsePin] = useState(pinAvailable);
   const [pin, setPin] = useState("");
   const pinLength = getPinLength() ?? 4;
