@@ -8,6 +8,7 @@ import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
 import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
 import { type SymKey } from "../lib/crypto/types";
 import { pinIsSet, getPinLength, unlockWithPin, type PinUnlockError } from "../lib/crypto/pin";
+import { pushPinToExtension } from "../lib/extension-bridge";
 import { PinInput } from "../components/PinInput";
 import { NadSafeLogo } from "../components/NadSafeLogo";
 import styles from "./Auth.module.css";
@@ -84,6 +85,11 @@ export function UnlockPage() {
     try {
       const userKey = await unlockWithPin(value);
       await completeUnlock(userKey);
+      // Re-sync the PIN to the extension — covers PINs set before cross-surface
+      // propagation existed. Deferred so the post-navigation auto-push unlocks
+      // the extension (with items) before it wraps a DEK under this PIN.
+      // Best-effort: a locked/absent extension just ignores it.
+      setTimeout(() => void pushPinToExtension(value), 2500);
     } catch (err) {
       setPin("");
       const e = err as PinUnlockError;

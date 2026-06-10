@@ -45,3 +45,31 @@ export function pushItemsToExtension(items: VaultItem[]): Promise<boolean> {
   );
   return Promise.resolve(true);
 }
+
+/**
+ * Relay the user's PIN to the extension so the same digits unlock it — a
+ * "set once" PIN shared between the web app and the extension within this
+ * browser. The extension wraps its own data-encryption key under this PIN
+ * locally; the PIN never reaches the server and is only sent at the moment the
+ * user types it (set / change / unlock). Fire-and-forget over the same-origin
+ * bridge (the content script gates it on the trusted web-app origin).
+ *
+ * No-op in the Tauri desktop shell (no content script listening) — desktop
+ * keeps its own device-local PIN.
+ */
+export function pushPinToExtension(pin: string): Promise<boolean> {
+  window.postMessage(
+    { source: WEBAPP_SOURCE, type: "PUSH_PIN", payload: { pin } },
+    window.location.origin,
+  );
+  return Promise.resolve(true);
+}
+
+/** Clear the extension's PIN when the user removes it in the web app. */
+export function removePinFromExtension(): Promise<boolean> {
+  window.postMessage(
+    { source: WEBAPP_SOURCE, type: "REMOVE_PIN", payload: {} },
+    window.location.origin,
+  );
+  return Promise.resolve(true);
+}

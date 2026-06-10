@@ -315,19 +315,42 @@ async function handleCreateAlias(hostname) {
 
 // ─── Autofill: match URL against cached items ─────────────────────────────────
 
+// Reduce a stored URI or page URL to a comparable hostname. Stored URIs are
+// free text the user typed in the web app — they may be scheme-less
+// ("github.com", "github.com/login") which `new URL()` rejects outright, or
+// carry a "www." that differs from the page. Normalize both sides so neither
+// quirk hides a saved login.
+function normalizeHost(value) {
+  if (!value) return "";
+  let s = String(value).trim();
+  if (!s) return "";
+  // Prepend a scheme when missing so `new URL()` can parse a bare host/path.
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `https://${s}`;
+  let host;
+  try { host = new URL(s).hostname.toLowerCase(); } catch { return ""; }
+  return host.startsWith("www.") ? host.slice(4) : host;
+}
+
+// Same site when hostnames are equal, or one is a subdomain of the other
+// (accounts.google.com ↔ google.com). The leading dot prevents
+// "evil-google.com" from matching "google.com".
+function hostsMatch(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.endsWith(`.${b}`) || b.endsWith(`.${a}`);
+}
+
 async function handleAutofillQuery(url) {
   const session = await ext.storage.session.get(["locked", "items"]);
   if (session.locked || !session.items) return { matches: [] };
 
-  let hostname = "";
-  try { hostname = new URL(url).hostname; } catch { return { matches: [] }; }
+  const host = normalizeHost(url);
+  if (!host) return { matches: [] };
 
   const matches = (session.items ?? [])
     .filter((item) => {
       if (item.type !== "login" || !item.login?.uris) return false;
-      return item.login.uris.some((uri) => {
-        try { return new URL(uri).hostname === hostname; } catch { return false; }
-      });
+      return item.login.uris.some((uri) => hostsMatch(normalizeHost(uri), host));
     })
     .map((item) => ({
       id: item.id,
