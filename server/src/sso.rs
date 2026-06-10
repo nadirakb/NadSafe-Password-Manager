@@ -117,7 +117,7 @@ struct SsoTokenJwtClaims {
     pub sub: String,
 }
 
-pub fn encode_ssotoken_claims() -> String {
+pub fn encode_ssotoken_claims() -> Result<String, crate::Error> {
     let time_now = Utc::now();
     let claims = SsoTokenJwtClaims {
         nbf: time_now.timestamp(),

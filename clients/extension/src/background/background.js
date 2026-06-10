@@ -29,11 +29,13 @@ const PIN_MAX_ATTEMPTS = 5;
 ext.runtime.onInstalled.addListener(() => {
   ext.storage.session.set({ locked: true });
   scheduleLock(DEFAULT_LOCK_MINUTES);
-  // Seed the trusted web-app origin (dev default) only if the user hasn't set
-  // one. The content-script bridge rejects PUSH_ITEMS/PUSH_SESSION from any
+  // Seed the trusted web-app origin only if the user hasn't set one.
+  // The content-script bridge rejects PUSH_ITEMS/PUSH_SESSION from any
   // other origin, so this gates which page may drive the extension.
-  ext.storage.local.get("webAppOrigin", (r) => {
-    if (!r.webAppOrigin) ext.storage.local.set({ webAppOrigin: "http://localhost:5173" });
+  // No default is set here — operators must configure webAppOrigin explicitly
+  // (e.g. via the extension Options page) to prevent localhost leaking into prod.
+  ext.storage.local.get("webAppOrigin", (_r) => {
+    // Intentionally no default: require explicit configuration.
   });
 });
 

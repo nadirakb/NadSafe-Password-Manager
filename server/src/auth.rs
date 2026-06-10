@@ -96,11 +96,8 @@ pub async fn initialize_keys() -> Result<(), Error> {
     Ok(())
 }
 
-pub fn encode_jwt<T: Serialize>(claims: &T) -> String {
-    match jsonwebtoken::encode(&JWT_HEADER, claims, PRIVATE_RSA_KEY.wait()) {
-        Ok(token) => token,
-        Err(e) => panic!("Error encoding jwt {e}"),
-    }
+pub fn encode_jwt<T: Serialize>(claims: &T) -> Result<String, Error> {
+    jsonwebtoken::encode(&JWT_HEADER, claims, PRIVATE_RSA_KEY.wait()).map_err(|e| Error::new("JWT encoding failed", e.to_string()))
 }
 
 pub fn decode_jwt<T: DeserializeOwned>(token: &str, issuer: String) -> Result<T, Error> {
@@ -281,7 +278,7 @@ impl LoginJwtClaims {
         )
     }
 
-    pub fn token(&self) -> String {
+    pub fn token(&self) -> Result<String, Error> {
         encode_jwt(&self)
     }
 
@@ -1201,11 +1198,11 @@ pub struct AuthTokens {
 }
 
 impl AuthTokens {
-    pub fn refresh_token(&self) -> String {
+    pub fn refresh_token(&self) -> Result<String, Error> {
         encode_jwt(&self.refresh_claims)
     }
 
-    pub fn access_token(&self) -> String {
+    pub fn access_token(&self) -> Result<String, Error> {
         self.access_claims.token()
     }
 

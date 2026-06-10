@@ -163,8 +163,8 @@ async fn refresh_login(data: ConnectData, conn: &DbConn, ip: &ClientIp) -> JsonR
             device.save(true, conn).await?;
 
             let result = json!({
-                "refresh_token": auth_tokens.refresh_token(),
-                "access_token": auth_tokens.access_token(),
+                "refresh_token": auth_tokens.refresh_token()?,
+                "access_token": auth_tokens.access_token()?,
                 "expires_in": auth_tokens.expires_in(),
                 "token_type": "Bearer",
                 "scope": auth_tokens.scope(),
@@ -534,10 +534,10 @@ async fn authenticated_response(
     };
 
     let mut result = json!({
-        "access_token": auth_tokens.access_token(),
+        "access_token": auth_tokens.access_token()?,
         "expires_in": auth_tokens.expires_in(),
         "token_type": "Bearer",
-        "refresh_token": auth_tokens.refresh_token(),
+        "refresh_token": auth_tokens.refresh_token()?,
         "PrivateKey": user.private_key,
         "Kdf": user.client_kdf_type,
         "KdfIterations": user.client_kdf_iter,
@@ -687,7 +687,7 @@ async fn user_api_key_login(
     // Note: No refresh_token is returned. The CLI just repeats the
     // client_credentials login flow when the existing token expires.
     let result = json!({
-        "access_token": access_claims.token(),
+        "access_token": access_claims.token()?,
         "expires_in": access_claims.expires_in(),
         "token_type": "Bearer",
         "Key": user.akey,
@@ -729,7 +729,7 @@ async fn organization_api_key_login(data: ConnectData, conn: &DbConn, ip: &Clien
     }
 
     let claim = generate_organization_api_key_login_claims(org_api_key.uuid, org_api_key.org_uuid);
-    let access_token = auth::encode_jwt(&claim);
+    let access_token = auth::encode_jwt(&claim)?;
 
     Ok(Json(json!({
         "access_token": access_token,
@@ -885,7 +885,7 @@ async fn twofactor_auth(
 
     let remember = data.two_factor_remember.unwrap_or(0);
     let two_factor = if !CONFIG.disable_2fa_remember() && remember == 1 {
-        Some(device.refresh_twofactor_remember())
+        Some(device.refresh_twofactor_remember()?)
     } else {
         None
     };
@@ -1056,7 +1056,7 @@ async fn register_verification_email(
     let should_send_mail = CONFIG.mail_enabled() && CONFIG.signups_verify();
 
     let token_claims = auth::generate_register_verify_claims(data.email.clone(), data.name.clone(), should_send_mail);
-    let token = auth::encode_jwt(&token_claims);
+    let token = auth::encode_jwt(&token_claims)?;
 
     if should_send_mail {
         let user = User::find_by_mail(&data.email, &conn).await;
@@ -1155,7 +1155,7 @@ fn check_is_some<T>(value: Option<&T>, msg: &str) -> EmptyResult {
 #[get("/sso/prevalidate")]
 fn prevalidate() -> JsonResult {
     if CONFIG.sso_enabled() {
-        let sso_token = sso::encode_ssotoken_claims();
+        let sso_token = sso::encode_ssotoken_claims()?;
         Ok(Json(json!({
             "token": sso_token,
         })))
