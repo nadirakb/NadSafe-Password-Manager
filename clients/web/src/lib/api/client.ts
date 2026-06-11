@@ -66,10 +66,12 @@ export class ApiClient {
       throw new ApiResponseError(res.status, errorBody);
     }
 
-    // 204 No Content
+    // 204 No Content, or EmptyResult endpoints that reply 200 with no body
+    // (e.g. DELETE /api/ciphers/<id>, /identity/accounts/register)
     if (res.status === 204) return undefined as T;
-
-    return res.json() as Promise<T>;
+    const text = await res.text();
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
 
   get<T>(path: string): Promise<T> {

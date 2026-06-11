@@ -458,7 +458,10 @@ function setupField(input) {
     const matches = await getMatches();
     if (activeField !== input) return; // field blurred while awaiting
 
-    if (type === "password") {
+    // Only auto-open when there is something to fill. The generator stays
+    // reachable via the field icon — auto-popping it while the user types
+    // their existing password reads as "replace your password".
+    if (type === "password" && matches.length > 0) {
       showPasswordDropdown(input, matches);
     } else if (type === "email" && matches.length > 0) {
       showEmailDropdown(input, matches);
@@ -666,6 +669,13 @@ function showSaveNotification(hostname, username, password) {
   const notNowBtn = makeBtn("Not now", false);
   const addBtn = makeBtn("Add", true);
 
+  // Any explicit user decision drops the stashed plaintext in the background.
+  function clearPending() {
+    try { ext.runtime.sendMessage({ type: "CLEAR_PENDING_SAVE" })?.catch?.(() => {}); } catch { /* no-op */ }
+  }
+  notNowBtn.addEventListener("click", clearPending);
+  hdrClose.addEventListener("click", clearPending);
+
   notNowBtn.addEventListener("click", closeSaveNotif);
 
   addBtn.addEventListener("click", async () => {
@@ -679,6 +689,7 @@ function showSaveNotification(hostname, username, password) {
         addBtn.style.borderColor = "#16a34a";
         // Invalidate match cache so new item appears on next focus
         matchCache = null;
+        clearPending();
         setTimeout(closeSaveNotif, 1500);
       } else {
         throw new Error(res?.error ?? "Unknown error");
@@ -734,23 +745,70 @@ function extractCreds(root) {
   return { username: uField?.value ?? "", password: pwField.value };
 }
 
-const recentlySubmitted = new WeakSet();
+// Time-based dedupe: a WeakSet would permanently silence a form, so a SPA
+// retry after a typo (same <form> element) would never re-offer the save.
+const lastSubmitAt = new WeakMap();
+const SUBMIT_DEDUPE_MS = 2000;
+
+function dedupe(el) {
+  const now = Date.now();
+  if (now - (lastSubmitAt.get(el) ?? 0) < SUBMIT_DEDUPE_MS) return true;
+  lastSubmitAt.set(el, now);
+  return false;
+}
 
 function maybeSave(creds) {
   if (!creds?.password) return;
   const hostname = location.hostname;
+  // Stash with the background first: a classic form submit navigates the page
+  // before the notification can render, so the next load in this tab re-offers.
+  try {
+    ext.runtime.sendMessage({
+      type: "STASH_PENDING_SAVE",
+      payload: { hostname, username: creds.username, password: creds.password },
+    })?.catch?.(() => {});
+  } catch { /* extension context invalidated */ }
+
   getMatches().then((matches) => {
     const known = matches.some((m) => m.username === creds.username && m.username !== "");
-    if (!known) showSaveNotification(hostname, creds.username, creds.password);
+    if (known) {
+      // Already in the vault — drop the stashed plaintext immediately.
+      try { ext.runtime.sendMessage({ type: "CLEAR_PENDING_SAVE" })?.catch?.(() => {}); } catch { /* no-op */ }
+    } else {
+      showSaveNotification(hostname, creds.username, creds.password);
+    }
   });
+}
+
+// On a fresh page load, ask the background whether the previous page in this
+// tab submitted credentials that still need a save offer.
+async function checkPendingSave() {
+  try {
+    const res = await ext.runtime.sendMessage({ type: "POP_PENDING_SAVE" });
+    const p = res?.pending;
+    if (!p || p.hostname !== location.hostname) return;
+    const matches = await getMatches();
+    const known = matches.some((m) => m.username === p.username && m.username !== "");
+    if (!known) showSaveNotification(p.hostname, p.username, p.password);
+  } catch { /* no-op */ }
 }
 
 // Standard form submit
 document.addEventListener("submit", (e) => {
   const form = e.target;
-  if (recentlySubmitted.has(form)) return;
-  recentlySubmitted.add(form);
+  if (dedupe(form)) return;
   maybeSave(extractCreds(form));
+}, true);
+
+// Enter key in a formless password field — no submit event will fire
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const t = e.target;
+  if (!(t instanceof HTMLInputElement) || t.type !== "password" || !t.value) return;
+  if (t.closest("form")) return; // submit event covers it
+  if (dedupe(t)) return;
+  const root = t.closest('[class*="form"], [class*="login"], [class*="auth"], section, main') ?? document.body;
+  maybeSave(extractCreds(root));
 }, true);
 
 // SPA: button click inside a form-like container when no submit event fires
@@ -772,6 +830,7 @@ function scanPage() {
 
 function init() {
   scanPage();
+  checkPendingSave();
   const observer = new MutationObserver(() => {
     clearTimeout(window._nadsafeScanTimer);
     window._nadsafeScanTimer = setTimeout(scanPage, 400);

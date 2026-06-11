@@ -24,6 +24,10 @@ const DEFAULT_LOCK_MINUTES = 15;
 const PIN_ITERATIONS = 600_000; // PBKDF2-SHA256
 const PIN_MAX_ATTEMPTS = 5;
 
+// How long a submitted-but-unsaved credential may wait for the post-login
+// page to load before it is discarded.
+const PENDING_SAVE_TTL_MS = 45_000;
+
 // ─── Alarm / lock ─────────────────────────────────────────────────────────────
 
 ext.runtime.onInstalled.addListener(() => {
@@ -46,7 +50,7 @@ ext.alarms.onAlarm.addListener((alarm) => {
 function lockVault() {
   // Clear in-memory secrets. PIN material in storage.local is kept so the user
   // can quick-unlock; full clear happens only on REMOVE_PIN / failed-attempt wipe.
-  ext.storage.session.set({ locked: true, sessionKey: null, items: null, dek: null });
+  ext.storage.session.set({ locked: true, sessionKey: null, items: null, dek: null, pendingSave: null });
 }
 
 function scheduleLock(minutes) {
@@ -158,6 +162,32 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     case "REMOVE_PIN":
       handleRemovePin().then(sendResponse);
+      return true;
+
+    // Pending-save stash: a classic form submit navigates the page before the
+    // content script can show the save offer, so the credential is held here
+    // (memory-only session storage, short TTL, same-tab only) and re-offered
+    // on the next page load in that tab.
+    case "STASH_PENDING_SAVE":
+      ext.storage.session.set({
+        pendingSave: { ...message.payload, tabId: _sender?.tab?.id ?? null, ts: Date.now() },
+      }).then(() => sendResponse({ ok: true }));
+      return true;
+
+    case "POP_PENDING_SAVE":
+      ext.storage.session.get(["pendingSave"]).then(async ({ pendingSave }) => {
+        await ext.storage.session.remove("pendingSave");
+        const fresh =
+          pendingSave &&
+          Date.now() - pendingSave.ts < PENDING_SAVE_TTL_MS &&
+          pendingSave.tabId != null &&
+          pendingSave.tabId === _sender?.tab?.id;
+        sendResponse({ pending: fresh ? pendingSave : null });
+      });
+      return true;
+
+    case "CLEAR_PENDING_SAVE":
+      ext.storage.session.remove("pendingSave").then(() => sendResponse({ ok: true }));
       return true;
 
     default:
