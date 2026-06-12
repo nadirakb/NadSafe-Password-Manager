@@ -201,6 +201,12 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       ext.storage.session.remove("pendingSave").then(() => sendResponse({ ok: true }));
       return true;
 
+    case "OPEN_WEBAPP":
+      handleOpenWebapp()
+        .then(sendResponse)
+        .catch((err) => sendResponse({ ok: false, error: String(err) }));
+      return true;
+
     default:
       sendResponse({ error: "Unknown message type" });
   }
@@ -312,6 +318,34 @@ async function handleSaveCredential({ hostname, username, password }) {
   } catch {
     return { ok: false, error: "NadSafe tab not reachable — reopen it and push again" };
   }
+}
+
+// Focus the existing NadSafe web-app tab, or open a fresh one at the configured
+// trusted origin. The locked-vault save prompt calls this so the user has a
+// one-click path to unlock: returning to the app auto-pushes the vault, which
+// re-arms the extension for the pending save.
+async function handleOpenWebapp() {
+  const [{ webappTabId }, { webAppOrigin }] = await Promise.all([
+    ext.storage.session.get(["webappTabId"]),
+    ext.storage.local.get(["webAppOrigin"]),
+  ]);
+
+  if (webappTabId != null) {
+    try {
+      const tab = await ext.tabs.get(webappTabId);
+      if (tab) {
+        await ext.tabs.update(webappTabId, { active: true });
+        if (tab.windowId != null) await ext.windows.update(tab.windowId, { focused: true });
+        return { ok: true };
+      }
+    } catch { /* tab gone — fall through to open a fresh one */ }
+  }
+
+  if (!webAppOrigin) {
+    return { ok: false, error: "Set the NadSafe web-app origin in the extension settings first" };
+  }
+  await ext.tabs.create({ url: webAppOrigin });
+  return { ok: true };
 }
 
 // ─── Alias service ────────────────────────────────────────────────────────────

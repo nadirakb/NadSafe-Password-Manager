@@ -10,25 +10,26 @@
  * Safe no-op when the extension isn't installed or the vault is locked.
  */
 
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback } from "react";
 import { useVaultStore } from "../stores/vault";
 import { getSessionUserKey } from "../stores/session";
-import { checkExtensionInstalled, pushItemsToExtension } from "../lib/extension-bridge";
+import { pushItemsToExtension } from "../lib/extension-bridge";
 
 export function useExtensionAutoPush(): void {
   const items = useVaultStore((s) => s.items);
   const lastSynced = useVaultStore((s) => s.lastSynced);
-  const installed = useRef<boolean | null>(null);
 
-  const push = useCallback(async () => {
+  const push = useCallback(() => {
     if (!getSessionUserKey()) return; // vault locked — nothing to share
     const current = useVaultStore.getState().items;
     if (current.length === 0) return;
 
-    if (installed.current === null) {
-      installed.current = await checkExtensionInstalled();
-    }
-    if (installed.current) void pushItemsToExtension(current);
+    // Fire-and-forget same-origin postMessage. No install check: a stale
+    // "not installed" result (content script not ready on first load, or a
+    // PONG slower than the 1s probe) used to latch off auto-push for the whole
+    // session, forcing a manual "Push to extension" every visit. The push is a
+    // harmless no-op when nothing is listening, so always send it.
+    void pushItemsToExtension(current);
   }, []);
 
   // Push on item changes / fresh syncs.
