@@ -140,6 +140,38 @@ function classifyField(input) {
   return null;
 }
 
+// Distinguish a login form (existing account) from a signup form. The
+// "hide my email" alias only makes sense when CREATING a new account — offering
+// it while the user signs in is noise. Bias toward suppression: only treat a
+// form as login when we're confident, so ambiguous/signup forms still get the
+// alias.
+function looksLikeLogin(field, matches) {
+  // A saved login already exists for this site → the user is signing in.
+  if (matches && matches.length > 0) return true;
+
+  const scope =
+    field.closest("form") ||
+    field.closest('[class*="form"], [class*="login"], [class*="signin"], [class*="auth"], section, main') ||
+    document;
+
+  // Explicit autocomplete is the most reliable signal.
+  if (scope.querySelector('input[autocomplete="new-password"]')) return false;     // signup
+  if (scope.querySelector('input[autocomplete="current-password"]')) return true;  // login
+
+  // Two+ password fields ⇒ password + confirm ⇒ signup.
+  if (scope.querySelectorAll('input[type="password"]').length >= 2) return false;
+
+  // Fall back to visible text + submit-button wording.
+  const submitText = Array.from(scope.querySelectorAll('button, input[type="submit"], input[type="button"]'))
+    .map((b) => b.value || b.textContent || "")
+    .join(" ");
+  const text = `${scope.innerText || ""} ${submitText}`.toLowerCase();
+  const signup = /sign[\s-]?up|register|create\s+(an?\s+)?account|create\s+your\s+account|join\b|get\s+started|new\s+account/.test(text);
+  const login = /sign[\s-]?in|log[\s-]?in|welcome\s+back/.test(text);
+  if (login && !signup) return true;
+  return false; // signup or ambiguous → allow alias
+}
+
 // ─── Floating icon ────────────────────────────────────────────────────────────
 
 let iconEl = null;
@@ -306,6 +338,21 @@ async function showEmailDropdown(field, matches) {
       sub: m.name,
       onClick: () => { fillField(field, m.username); closeDropdown(); },
     });
+  }
+
+  // Suppress the alias on login forms — a new disposable address is only useful
+  // when registering, not when signing in to an existing account.
+  if (looksLikeLogin(field, matches)) {
+    if (seen.size === 0) {
+      addOption(dropdown, {
+        emoji: "🔑",
+        label: "No saved emails for this site",
+        sub: "Type to sign in",
+        dimmed: true,
+        onClick: () => closeDropdown(),
+      });
+    }
+    return;
   }
 
   if (seen.size > 0) addSeparator(dropdown);
@@ -637,7 +684,7 @@ function showSaveNotification(hostname, username, password) {
   card.appendChild(hdr);
 
   // ── Body rows ────────────────────────────────────────────────────────────────
-  function makeRow(emoji, labelText, valueText, mono = false) {
+  function makeRow(emoji, labelText, valueText, { mono = false, secret = null } = {}) {
     const row = document.createElement("div");
     row.style.cssText = "display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #1e3040;";
 
@@ -646,23 +693,45 @@ function showSaveNotification(hostname, username, password) {
     icon.textContent = emoji;
 
     const text = document.createElement("div");
-    text.style.cssText = "display:flex;flex-direction:column;gap:2px;min-width:0;";
+    text.style.cssText = "display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;";
 
     const lbl = document.createElement("span");
     lbl.style.cssText = "font-size:10px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.06em;";
     lbl.textContent = labelText;
 
+    const mask = (s) => "•".repeat(Math.min(s.length, 14));
     const val = document.createElement("span");
     val.style.cssText = `font-size:13px;font-weight:500;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${mono ? "font-family:monospace;letter-spacing:0.08em;" : ""}`;
-    val.textContent = valueText;
+    val.textContent = secret != null ? mask(secret) : valueText;
 
     text.append(lbl, val);
     row.append(icon, text);
+
+    // Reveal toggle for secret rows (password).
+    if (secret != null) {
+      let revealed = false;
+      const eye = document.createElement("button");
+      eye.type = "button";
+      eye.textContent = "👁";
+      eye.title = "Show password";
+      eye.setAttribute("aria-label", "Show password");
+      eye.style.cssText = "flex-shrink:0;background:none;border:none;color:#64748b;cursor:pointer;font-size:15px;line-height:1;padding:4px 2px;border-radius:4px;";
+      eye.addEventListener("mouseover", () => { eye.style.color = "#94a3b8"; });
+      eye.addEventListener("mouseout",  () => { eye.style.color = "#64748b"; });
+      eye.addEventListener("click", () => {
+        revealed = !revealed;
+        val.textContent = revealed ? secret : mask(secret);
+        eye.textContent = revealed ? "🙈" : "👁";
+        eye.title = revealed ? "Hide password" : "Show password";
+        eye.setAttribute("aria-label", eye.title);
+      });
+      row.appendChild(eye);
+    }
     return row;
   }
 
   card.appendChild(makeRow("👤", "Username / email", username || "(none)"));
-  card.appendChild(makeRow("🔑", "Password", "•".repeat(Math.min(password.length, 14)), true));
+  card.appendChild(makeRow("🔑", "Password", "", { mono: true, secret: password }));
 
   // ── Actions ──────────────────────────────────────────────────────────────────
   const actions = document.createElement("div");

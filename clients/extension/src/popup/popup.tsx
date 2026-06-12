@@ -140,9 +140,9 @@ function LockedView({ onUnlock, onSettings, serverUrl }: { onUnlock: () => void;
         <div className="lock-icon">🔒</div>
         <p className="lock-label">Vault locked</p>
         <p className="lock-hint">
-          Open the NadSafe web app, then go to{" "}
-          <strong>Settings → Browser Extension → Push to Extension</strong>
-          {" "}to sync your vault.
+          Open the NadSafe web app once to sync your vault — the extension then
+          syncs and saves on its own. Set a{" "}
+          <strong>quick-unlock PIN</strong> to unlock here without reopening it.
         </p>
         <div className="lock-actions">
           <button

@@ -46,6 +46,33 @@ export function pushItemsToExtension(items: VaultItem[]): Promise<boolean> {
   return Promise.resolve(true);
 }
 
+export interface ExtensionSession {
+  /** Base64 of the 64-byte user key (enc||mac). */
+  userKey: string;
+  accessToken: string;
+  /** Absolute server origin the extension fetches from. */
+  serverUrl: string;
+  email?: string;
+}
+
+/**
+ * Push the unlocked session — user key, access token, server URL — to the
+ * extension so it can read and write the vault directly from the server (sync +
+ * save) without this tab open. The content-script bridge gates the message on
+ * the configured web-app origin before handing it to the background worker.
+ *
+ * Same trust boundary as pushItemsToExtension (which already crosses plaintext
+ * items): the message is posted to our own origin only and bridged in-browser.
+ * No-op in the Tauri desktop shell (no content script listening).
+ */
+export function pushSessionToExtension(session: ExtensionSession): Promise<boolean> {
+  window.postMessage(
+    { source: WEBAPP_SOURCE, type: "PUSH_SESSION", payload: session },
+    window.location.origin,
+  );
+  return Promise.resolve(true);
+}
+
 /**
  * Relay the user's PIN to the extension so the same digits unlock it — a
  * "set once" PIN shared between the web app and the extension within this
