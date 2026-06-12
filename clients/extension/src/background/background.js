@@ -16,6 +16,12 @@
 // Both support the same MV3 API surface for storage.session, runtime, alarms.
 const ext = (typeof browser !== "undefined" ? browser : chrome);
 
+import { symKeyFromB64, decryptCipher, encryptField } from "../lib/vault-crypto.js";
+
+// Bitwarden-compatible client identity headers, required by some Vaultwarden
+// deployments on /api/sync and /api/ciphers.
+const BW_HEADERS = { "Bitwarden-Client-Name": "browser", "Bitwarden-Client-Version": "2024.1.0" };
+
 const LOCK_ALARM = "nadsafe-autolock";
 const DEFAULT_LOCK_MINUTES = 15;
 
@@ -58,6 +64,7 @@ function lockVault() {
     accessToken: null,
     rawCiphers: null,
     encryptedUserKey: null,
+    userKey: null,
   });
 }
 
@@ -213,56 +220,70 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 // ─── Unlock flow ──────────────────────────────────────────────────────────────
+//
+// The web app pushes the already-derived 64-byte user key (base64) plus the
+// access token and server URL. With these the extension reads and writes the
+// vault on its own — see handleSync / handleSaveCredential. No master password
+// or KDF crosses the bridge; only the symmetric key, which lives in session
+// memory (cleared on lock) and, when a PIN is set, in the PIN-wrapped blob.
 
-async function handleUnlock({ email, serverUrl, accessToken, encryptedUserKey, kdfType, kdfParams }) {
-  if (!accessToken || !encryptedUserKey) {
-    return { ok: false, error: "Missing token or encrypted key — re-login in web app first" };
+async function handleUnlock({ email, serverUrl, userKey, accessToken }) {
+  if (!accessToken || !userKey) {
+    return { ok: false, error: "Missing session key or token — open NadSafe and unlock first" };
   }
 
-  // Store token + server for API calls
   await ext.storage.session.set({
     locked: false,
     accessToken,
     serverUrl: serverUrl ?? "",
     email,
-    encryptedUserKey,
-    kdfType,
-    kdfParams,
+    userKey, // base64 of the 64-byte user key
   });
 
   resetLockAlarm();
 
-  // Trigger immediate sync
+  // Pull + decrypt the vault straight away so autofill works without the web app.
   await handleSync().catch(() => null);
 
   return { ok: true };
 }
 
 // ─── Sync vault ───────────────────────────────────────────────────────────────
+//
+// Fetch ciphers from the server and decrypt them in-process with the held user
+// key. Replaces the old "store raw ciphers, decrypt elsewhere" stub — the
+// extension now owns decryption end to end.
 
 async function handleSync() {
-  const session = await ext.storage.session.get([
-    "locked", "accessToken", "serverUrl",
-  ]);
+  const session = await ext.storage.session.get(["locked", "accessToken", "serverUrl", "userKey"]);
 
-  if (session.locked || !session.accessToken) {
+  if (session.locked || !session.accessToken || !session.userKey) {
     return { ok: false, error: "Vault locked" };
   }
 
   try {
     const base = session.serverUrl || "";
     const res = await fetch(`${base}/api/sync?excludeDomains=true`, {
-      headers: { Authorization: `Bearer ${session.accessToken}` },
+      headers: { Authorization: `Bearer ${session.accessToken}`, Accept: "application/json", ...BW_HEADERS },
     });
 
+    if (res.status === 401) return { ok: false, error: "NadSafe session expired — open NadSafe to refresh" };
     if (!res.ok) throw new Error(`Sync HTTP ${res.status}`);
     const data = await res.json();
 
-    // Store raw (encrypted) ciphers — decryption happens in content script
-    // or popup which has access to WebCrypto and hash-wasm
-    await ext.storage.session.set({ rawCiphers: data.ciphers ?? [] });
+    const key = symKeyFromB64(session.userKey);
+    const ciphers = (data.ciphers ?? []).filter((c) => !c.deletedDate);
+    const items = [];
+    for (const c of ciphers) {
+      // Org ciphers wrapped under an org key (not the user key) fail MAC check —
+      // skip them rather than abort the whole sync.
+      try { items.push(await decryptCipher(c, key)); } catch { /* skip */ }
+    }
 
-    return { ok: true, count: (data.ciphers ?? []).length };
+    await ext.storage.session.set({ items });
+    await refreshVaultBlob(items);
+
+    return { ok: true, count: items.length };
   } catch (err) {
     return { ok: false, error: String(err) };
   }
@@ -278,18 +299,75 @@ async function handleGetItems() {
 
 // ─── Save credential ─────────────────────────────────────────────────────────
 
-// The extension holds no encryption key, so it cannot create a server cipher
-// itself. Instead it relays the credential to the open NadSafe web app tab,
-// which encrypts with the in-memory user key and POSTs to the server.
+// When the extension holds the user key (standalone), it encrypts the
+// credential and POSTs the cipher to the server directly. Without a key it
+// falls back to relaying the credential to the open NadSafe web app tab, which
+// encrypts with its in-memory user key and POSTs on the extension's behalf.
 
 function originOf(url) {
   try { return new URL(url).origin; } catch { return null; }
 }
 
 async function handleSaveCredential({ hostname, username, password }) {
-  const session = await ext.storage.session.get(["locked", "webappTabId", "webappOrigin"]);
+  const session = await ext.storage.session.get([
+    "locked", "userKey", "accessToken", "serverUrl", "items", "webappTabId", "webappOrigin",
+  ]);
   if (session.locked) return { ok: false, error: "Vault locked" };
 
+  // Standalone path: encrypt + POST with the held key + token.
+  if (session.userKey && session.accessToken) {
+    const direct = await saveCredentialStandalone(session, { hostname, username, password });
+    // On a recoverable failure (expired/missing token, network) fall through to
+    // the web-app relay if one is available; otherwise surface the error.
+    if (direct.ok || (session.webappTabId == null)) return direct;
+  }
+
+  return relayToWebapp(session, { hostname, username, password });
+}
+
+// Encrypt a new login under the user key and create it on the server.
+async function saveCredentialStandalone(session, { hostname, username, password }) {
+  try {
+    const key = symKeyFromB64(session.userKey);
+    const uri = `https://${hostname}`;
+    const [encName, encUser, encPass, encUri] = await Promise.all([
+      encryptField(hostname || uri || "Untitled login", key),
+      username ? encryptField(username, key) : Promise.resolve(null),
+      encryptField(password, key),
+      encryptField(uri, key),
+    ]);
+
+    const base = session.serverUrl || "";
+    const res = await fetch(`${base}/api/ciphers`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.accessToken}`, "Content-Type": "application/json", Accept: "application/json", ...BW_HEADERS },
+      body: JSON.stringify({
+        type: 1, name: encName, notes: null, folderId: null, organizationId: null,
+        collectionIds: [], favorite: false, reprompt: 0, fields: [],
+        login: { username: encUser, password: encPass, totp: null, uris: [{ uri: encUri, match: null }] },
+      }),
+    });
+
+    if (res.status === 401) return { ok: false, error: "NadSafe session expired — open NadSafe to refresh, then click Add again" };
+    if (!res.ok) return { ok: false, error: `Save HTTP ${res.status}` };
+
+    // Reflect the new item locally so autofill finds it immediately.
+    const created = await res.json();
+    try {
+      const newItem = await decryptCipher(created, key);
+      const items = [...(session.items ?? []), newItem];
+      await ext.storage.session.set({ items });
+      await refreshVaultBlob(items);
+    } catch { /* item appears on next sync */ }
+
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}
+
+// Fallback: relay the plaintext credential to the open NadSafe web app tab.
+async function relayToWebapp(session, { hostname, username, password }) {
   const tabId = session.webappTabId;
   const expectedOrigin = session.webappOrigin;
   if (tabId == null || !expectedOrigin) {
@@ -486,49 +564,55 @@ async function aesDecrypt(key, ivArr, dataArr) {
 // Re-encrypt the at-rest session snapshot — only when a DEK is in memory (the DEK
 // must stay paired with the wrapped DEK, so we never write a blob the PIN can't open).
 //
-// The blob holds items (autofill) + serverUrl (the "Open vault" link). The API
-// accessToken is deliberately NOT persisted: the whole blob sits behind a 4-6
-// digit PIN, and an offline brute force of 10^4-10^6 PINs (the attempt counter
-// lives in the same storage.local and can be bypassed) must yield at most the
-// snapshot — never a live bearer token. Server sync and save-relay resume on
-// the next web-app push instead.
+// Standalone model: the blob holds items (autofill), serverUrl, the 64-byte user
+// key, and the access token — everything needed to PIN-unlock offline and keep
+// syncing/saving against the server without re-opening the web app. The whole
+// blob sits behind a 4-6 digit PIN, so an attacker with disk access AND the PIN
+// can read the vault and use the (until-expiry) token — the trade-off accepted
+// for standalone operation. The PIN-attempt counter (storage.local) rate-limits
+// in-extension guessing but is bypassable offline, so a strong PIN matters.
 async function refreshVaultBlob(items) {
-  const s = await ext.storage.session.get(["dek", "serverUrl"]);
+  const s = await ext.storage.session.get(["dek", "serverUrl", "userKey", "accessToken"]);
   if (!s.dek) return;
   const dekKey = await importDek(s.dek);
   const bundle = {
     items: items ?? [],
     serverUrl: s.serverUrl ?? "",
+    userKey: s.userKey ?? null,
+    accessToken: s.accessToken ?? null,
   };
   const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
   await ext.storage.local.set({ vaultBlob });
 }
 
-// Decrypted vaultBlob → normalized bundle. Tolerates the legacy formats: a bare
-// items array (pre-session-persistence builds) and bundles that still carry an
-// accessToken (dropped on read; the next refreshVaultBlob rewrites without it).
+// Decrypted vaultBlob → normalized bundle. Tolerates legacy formats: a bare
+// items array (pre-session-persistence builds) and bundles without key/token
+// (pre-standalone builds — those fall back to needing a web-app push).
 function unwrapVaultBundle(parsed) {
-  if (Array.isArray(parsed)) return { items: parsed, serverUrl: "" };
+  if (Array.isArray(parsed)) return { items: parsed, serverUrl: "", userKey: null, accessToken: null };
   return {
     items: parsed.items ?? [],
     serverUrl: parsed.serverUrl ?? "",
+    userKey: parsed.userKey ?? null,
+    accessToken: parsed.accessToken ?? null,
   };
 }
 
 async function handleSetPin({ pin }) {
   if (!/^(\d{4}|\d{6})$/.test(pin || "")) return { ok: false, error: "PIN must be 4 or 6 digits" };
 
-  const session = await ext.storage.session.get(["locked", "items", "dek", "serverUrl"]);
+  const session = await ext.storage.session.get(["locked", "items", "dek", "serverUrl", "userKey", "accessToken"]);
   if (session.locked) return { ok: false, error: "Unlock the vault before setting a PIN" };
 
   // Reuse the in-memory DEK if present (changing PIN), else mint a fresh one.
   const dekArr = session.dek ?? toArr(randomBytes(32));
   const dekKey = await importDek(dekArr);
 
-  // No accessToken in the bundle — see refreshVaultBlob.
   const bundle = {
     items: session.items ?? [],
     serverUrl: session.serverUrl ?? "",
+    userKey: session.userKey ?? null,
+    accessToken: session.accessToken ?? null,
   };
   const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
 
@@ -557,16 +641,21 @@ async function handleUnlockPin({ pin }) {
     const blobBytes = await aesDecrypt(dekKey, local.vaultBlob.iv, local.vaultBlob.data);
     const bundle = unwrapVaultBundle(JSON.parse(td.decode(blobBytes)));
 
-    // Restore autofill items + the "Open vault" link. No accessToken at rest,
-    // so server sync / save-relay wait for the next web-app push.
+    // Restore the full standalone session: items, server URL, user key, token.
     await ext.storage.session.set({
       locked: false,
       items: bundle.items,
       serverUrl: bundle.serverUrl,
+      userKey: bundle.userKey,
+      accessToken: bundle.accessToken,
       dek: toArr(dek),
     });
     await ext.storage.local.set({ pinAttempts: 0 });
     resetLockAlarm();
+
+    // Refresh from the server in the background so a PIN unlock isn't stuck on a
+    // stale snapshot. Best-effort — cached items already cover offline use.
+    if (bundle.userKey && bundle.accessToken) void handleSync().catch(() => null);
     return { ok: true };
   } catch {
     const used = attempts + 1;
