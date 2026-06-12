@@ -615,6 +615,15 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     relaySaveToWebapp(message.payload).then(sendResponse);
     return true; // async response
   }
+
+  // Popup pairing: ask this page (if it's the NadSafe web app) to push its
+  // unlocked session now, so the extension unlocks the moment an origin is
+  // trusted instead of waiting for the next tab-focus push.
+  if (message.type === "REQUEST_WEBAPP_PUSH") {
+    window.postMessage({ source: "nadsafe-extension", type: "REQUEST_PUSH" }, window.location.origin);
+    sendResponse?.({ ok: true });
+    return;
+  }
 });
 
 // ─── Save-login notification ──────────────────────────────────────────────────

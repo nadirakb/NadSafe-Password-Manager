@@ -126,7 +126,50 @@ function ri(max: number): number {
 
 // ── Locked view ───────────────────────────────────────────────────
 
-function LockedView({ onUnlock, onSettings, serverUrl }: { onUnlock: () => void; onSettings: () => void; serverUrl: string }) {
+function LockedView({ onUnlock, onSettings, serverUrl, paired }: {
+  onUnlock: () => void;
+  onSettings: () => void;
+  serverUrl: string;
+  paired: boolean;
+}) {
+  // Origin of the tab the popup opened over — the candidate NadSafe web app to
+  // pair with. tab.url is populated for http(s) tabs via host_permissions.
+  const [tabOrigin, setTabOrigin] = useState<string | null>(null);
+  const [pairing, setPairing] = useState(false);
+  const [pairMsg, setPairMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    ext.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+      try { setTabOrigin(tab?.url ? new URL(tab.url).origin : null); } catch { setTabOrigin(null); }
+    });
+  }, []);
+
+  // Pair this extension with the current tab: trust its origin, then ask the
+  // page to push its unlocked session right away. Until an origin is trusted the
+  // content-script bridge drops every push, so the vault can never unlock.
+  async function connect() {
+    if (!tabOrigin || !/^https?:/.test(tabOrigin)) {
+      setPairMsg("Open your NadSafe web app in this tab first, then press Connect.");
+      return;
+    }
+    setPairing(true); setPairMsg(null);
+    await ext.storage.local.set({ webAppOrigin: tabOrigin });
+
+    const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+    if (tab?.id != null) {
+      try { await ext.tabs.sendMessage(tab.id, { type: "REQUEST_WEBAPP_PUSH" }); } catch { /* no content script */ }
+    }
+
+    // Poll for the push to land and unlock the vault.
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      const { locked } = await getStatus();
+      if (!locked) { setPairing(false); onUnlock(); return; }
+    }
+    setPairing(false);
+    setPairMsg("Paired. Make sure the NadSafe tab is unlocked, then press Check status.");
+  }
+
   return (
     <div className="view locked-view">
       <div className="header">
@@ -139,25 +182,52 @@ function LockedView({ onUnlock, onSettings, serverUrl }: { onUnlock: () => void;
       <div className="locked-body">
         <div className="lock-icon">🔒</div>
         <p className="lock-label">Vault locked</p>
-        <p className="lock-hint">
-          Open the NadSafe web app once to sync your vault — the extension then
-          syncs and saves on its own. Set a{" "}
-          <strong>quick-unlock PIN</strong> to unlock here without reopening it.
-        </p>
-        <div className="lock-actions">
-          <button
-            className="btn-outline"
-            onClick={() => ext.tabs.create({ url: serverUrl })}
-          >
-            Open NadSafe ↗
-          </button>
-          <button className="btn-primary" onClick={async () => {
-            const { locked } = await getStatus();
-            if (!locked) onUnlock();
-          }}>
-            Check status
-          </button>
-        </div>
+
+        {!paired ? (
+          <>
+            <p className="lock-hint">
+              Connect this extension to your NadSafe web app to sync. Open NadSafe
+              in this browser tab, then press <strong>Connect</strong>.
+            </p>
+            {tabOrigin && /^https?:/.test(tabOrigin) && (
+              <p className="lock-hint" style={{ color: "var(--text)", wordBreak: "break-all" }}>
+                Pair with: <strong>{tabOrigin}</strong>
+              </p>
+            )}
+            {pairMsg && <p className="lock-hint" style={{ color: "#fcd34d" }}>{pairMsg}</p>}
+            <div className="lock-actions">
+              <button className="btn-primary" onClick={connect} disabled={pairing}>
+                {pairing ? "Connecting…" : "Connect to this tab"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="lock-hint">
+              Open the NadSafe web app once to sync your vault — the extension then
+              syncs and saves on its own. Set a{" "}
+              <strong>quick-unlock PIN</strong> to unlock here without reopening it.
+            </p>
+            {pairMsg && <p className="lock-hint" style={{ color: "#fcd34d" }}>{pairMsg}</p>}
+            <div className="lock-actions">
+              <button className="btn-outline" onClick={() => ext.tabs.create({ url: serverUrl })}>
+                Open NadSafe ↗
+              </button>
+              <button className="btn-primary" onClick={async () => {
+                // Re-ask the active tab to push, in case it's the (already paired)
+                // web app, then check whether the vault unlocked.
+                const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+                if (tab?.id != null) { try { await ext.tabs.sendMessage(tab.id, { type: "REQUEST_WEBAPP_PUSH" }); } catch { /* no-op */ } }
+                await new Promise((r) => setTimeout(r, 400));
+                const { locked } = await getStatus();
+                if (!locked) onUnlock();
+                else setPairMsg("Still locked — open and unlock the NadSafe web app, then retry.");
+              }}>
+                Check status
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -647,6 +717,7 @@ function Popup() {
   const [locked, setLocked] = useState(true);
   const [hasPin, setHasPin] = useState(false);
   const [pinLength, setPinLength] = useState(4);
+  const [paired, setPaired] = useState(true); // assume paired until storage says otherwise (avoids a flash)
 
   useEffect(() => {
     getStatus().then((status) => {
@@ -656,10 +727,13 @@ function Popup() {
       if (!status.locked) loadVault();
       else setView(status.hasPin ? "pin-unlock" : "locked");
     });
-    // Load stored serverUrl for "Open vault" links
+    // Load stored serverUrl for "Open vault" links + pairing state.
     ext.storage.session.get(["serverUrl"]).then((s) => {
       const url = (s as Record<string, string>).serverUrl;
       if (url) setServerUrl(url);
+    });
+    ext.storage.local.get(["webAppOrigin"]).then((s) => {
+      setPaired(!!(s as Record<string, string>).webAppOrigin);
     });
   }, []);
 
@@ -718,7 +792,7 @@ function Popup() {
       />
     );
   }
-  if (view === "locked") return <LockedView onUnlock={loadVault} onSettings={() => setView("settings")} serverUrl={serverUrl} />;
+  if (view === "locked") return <LockedView onUnlock={loadVault} onSettings={() => setView("settings")} serverUrl={serverUrl} paired={paired} />;
   if (view === "generator") return <GeneratorView onBack={() => setView("list")} />;
   if (view === "settings") {
     return (
