@@ -66,4 +66,18 @@ export function useExtensionAutoPush(): void {
       document.removeEventListener("visibilitychange", onFocus);
     };
   }, [push]);
+
+  // Push on demand: the extension popup's "Connect" flow asks this page to push
+  // its session the moment the user pairs an origin (the content script relays
+  // REQUEST_PUSH same-origin). No secret crosses in — the request just triggers
+  // the normal push, whose payload still goes only to our own origin.
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (e.source !== window) return;
+      if (e.data?.source !== "nadsafe-extension" || e.data?.type !== "REQUEST_PUSH") return;
+      void push();
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [push]);
 }
