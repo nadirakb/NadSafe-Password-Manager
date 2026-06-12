@@ -14,6 +14,7 @@ import {
   unwrapUserKey,
 } from "../lib/crypto/key-hierarchy";
 import { generateRsaKeyPair, decryptRsaPrivateKey } from "../lib/crypto/rsa";
+import { announceUnlock } from "../lib/cross-tab-session";
 import { generateRecoveryEntropy, wrapUserKeyWithRecovery } from "../lib/crypto/recovery";
 import { symKeyFromBytes } from "../lib/crypto/types";
 import { toB64 } from "../lib/crypto/utils";
@@ -146,6 +147,7 @@ export function useLogin() {
           tokenRes.PrivateKey ?? tokenRes.privateKey ?? null,
         );
 
+        announceUnlock(); // wake other tabs sitting on /unlock
         navigate("/vault");
 
         // Check org 2FA policy: if any org requires 2FA and user didn't use it, flag it.

@@ -1,9 +1,10 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { getSessionUserKey } from "./stores/session";
 import { lockVault } from "./stores/lock";
 import { initExtensionSaveListener } from "./lib/extension-save";
+import { startCrossTabResponder, adoptSessionFromOtherTab } from "./lib/cross-tab-session";
 import { useTauriAutoLock } from "./hooks/useTauriAutoLock";
 import { useVaultTimeout } from "./hooks/useVaultTimeout";
 import { LoginPage } from "./pages/LoginPage";
@@ -32,7 +33,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { isAuthenticated, isLocked } = useAuthStore();
+  const { isAuthenticated } = useAuthStore();
+  // Block routing until cross-tab session adoption resolves, so a fresh tab
+  // doesn't flash /unlock before borrowing the key from an unlocked tab.
+  const [booting, setBooting] = useState(true);
 
   // Lock vault when Tauri desktop window regains focus after OS sleep/lock
   useTauriAutoLock();
@@ -42,10 +46,21 @@ export default function App() {
   useEffect(() => {
     // Listen for save requests relayed from the browser extension.
     initExtensionSaveListener();
-    if (isAuthenticated && !isLocked && !getSessionUserKey()) {
-      lockVault();
-    }
+    // Share this tab's key with other tabs that open later.
+    startCrossTabResponder();
+
+    (async () => {
+      // Authenticated but no in-memory key (new window/tab): try to borrow the
+      // unlocked session from another open tab before falling back to /unlock.
+      if (isAuthenticated && !getSessionUserKey()) {
+        const adopted = await adoptSessionFromOtherTab();
+        if (!adopted) lockVault();
+      }
+      setBooting(false);
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (booting) return null;
 
   return (
     <Routes>
