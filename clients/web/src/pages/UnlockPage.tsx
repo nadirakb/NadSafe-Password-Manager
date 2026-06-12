@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useLogout } from "../hooks/useAuth";
 import { setSessionUserKey, setSessionRsaKey } from "../stores/session";
+import { announceUnlock, onUnlockAnnounced, adoptSessionFromOtherTab } from "../lib/cross-tab-session";
 import { initApiClient } from "../lib/api/client";
 import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
 import { deriveLoginKeys, unwrapUserKey } from "../lib/crypto/key-hierarchy";
@@ -29,6 +30,14 @@ export function UnlockPage() {
   const [pin, setPin] = useState("");
   const pinLength = getPinLength() ?? 4;
 
+  // If another tab unlocks while this page is open, adopt its key instead of
+  // making the user re-enter the PIN here.
+  useEffect(() => {
+    return onUnlockAnnounced(async () => {
+      if (await adoptSessionFromOtherTab()) navigate("/vault");
+    });
+  }, [navigate]);
+
   /** Refresh the access token, install the session keys, and enter the vault. */
   async function completeUnlock(userKey: SymKey) {
     const client = initApiClient(serverUrl);
@@ -51,6 +60,7 @@ export function UnlockPage() {
     }
 
     unlock(tokenRes.access_token);
+    announceUnlock(); // wake other tabs sitting on /unlock
     navigate("/vault");
   }
 
