@@ -30,17 +30,13 @@ const PENDING_SAVE_TTL_MS = 45_000;
 
 // ─── Alarm / lock ─────────────────────────────────────────────────────────────
 
+// The trusted web-app origin (storage.local `webAppOrigin`) is deliberately
+// never seeded with a default: operators must configure it in the extension
+// settings, so localhost can't leak into prod. The content-script bridge
+// rejects PUSH_ITEMS/PUSH_SESSION from any other origin.
 ext.runtime.onInstalled.addListener(() => {
   ext.storage.session.set({ locked: true });
   scheduleLock(DEFAULT_LOCK_MINUTES);
-  // Seed the trusted web-app origin only if the user hasn't set one.
-  // The content-script bridge rejects PUSH_ITEMS/PUSH_SESSION from any
-  // other origin, so this gates which page may drive the extension.
-  // No default is set here — operators must configure webAppOrigin explicitly
-  // (e.g. via the extension Options page) to prevent localhost leaking into prod.
-  ext.storage.local.get("webAppOrigin", (_r) => {
-    // Intentionally no default: require explicit configuration.
-  });
 });
 
 ext.alarms.onAlarm.addListener((alarm) => {
@@ -48,9 +44,21 @@ ext.alarms.onAlarm.addListener((alarm) => {
 });
 
 function lockVault() {
-  // Clear in-memory secrets. PIN material in storage.local is kept so the user
-  // can quick-unlock; full clear happens only on REMOVE_PIN / failed-attempt wipe.
-  ext.storage.session.set({ locked: true, sessionKey: null, items: null, dek: null, pendingSave: null });
+  // Clear every in-memory secret — items, DEK, and the API access token
+  // (a locked vault must not keep a usable bearer token around).
+  // PIN material in storage.local is kept so the user can quick-unlock; full
+  // clear happens only on REMOVE_PIN / failed-attempt wipe. serverUrl stays so
+  // the locked popup's "Open vault" link still works.
+  ext.storage.session.set({
+    locked: true,
+    sessionKey: null,
+    items: null,
+    dek: null,
+    pendingSave: null,
+    accessToken: null,
+    rawCiphers: null,
+    encryptedUserKey: null,
+  });
 }
 
 function scheduleLock(minutes) {
@@ -95,7 +103,10 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return true;
 
     case "AUTOFILL_QUERY":
-      handleAutofillQuery(message.url).then(sendResponse);
+      // Trust the sender's actual tab URL over the self-reported one — a
+      // compromised page context must not be able to query another site's
+      // credentials. The popup has no tab, so its explicit url is used.
+      handleAutofillQuery(_sender?.tab?.url ?? message.url).then(sendResponse);
       return true;
 
     case "GET_ITEMS":
@@ -197,7 +208,7 @@ ext.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 // ─── Unlock flow ──────────────────────────────────────────────────────────────
 
-async function handleUnlock({ email, passwordHash, serverUrl, accessToken, encryptedUserKey, kdfType, kdfParams }) {
+async function handleUnlock({ email, serverUrl, accessToken, encryptedUserKey, kdfType, kdfParams }) {
   if (!accessToken || !encryptedUserKey) {
     return { ok: false, error: "Missing token or encrypted key — re-login in web app first" };
   }
@@ -441,48 +452,49 @@ async function aesDecrypt(key, ivArr, dataArr) {
 // Re-encrypt the at-rest session snapshot — only when a DEK is in memory (the DEK
 // must stay paired with the wrapped DEK, so we never write a blob the PIN can't open).
 //
-// The blob holds the full session needed to resume after a browser restart:
-// items (autofill), plus serverUrl/accessToken so the "Open vault" link and
-// server sync keep working post-unlock. Stored as { items, serverUrl,
-// accessToken } — see unwrapVaultBundle for the legacy bare-array fallback.
+// The blob holds items (autofill) + serverUrl (the "Open vault" link). The API
+// accessToken is deliberately NOT persisted: the whole blob sits behind a 4-6
+// digit PIN, and an offline brute force of 10^4-10^6 PINs (the attempt counter
+// lives in the same storage.local and can be bypassed) must yield at most the
+// snapshot — never a live bearer token. Server sync and save-relay resume on
+// the next web-app push instead.
 async function refreshVaultBlob(items) {
-  const s = await ext.storage.session.get(["dek", "serverUrl", "accessToken"]);
+  const s = await ext.storage.session.get(["dek", "serverUrl"]);
   if (!s.dek) return;
   const dekKey = await importDek(s.dek);
   const bundle = {
     items: items ?? [],
     serverUrl: s.serverUrl ?? "",
-    accessToken: s.accessToken ?? null,
   };
   const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
   await ext.storage.local.set({ vaultBlob });
 }
 
-// Decrypted vaultBlob → normalized bundle. Tolerates the legacy format where the
-// blob was a bare items array (pre-session-persistence builds).
+// Decrypted vaultBlob → normalized bundle. Tolerates the legacy formats: a bare
+// items array (pre-session-persistence builds) and bundles that still carry an
+// accessToken (dropped on read; the next refreshVaultBlob rewrites without it).
 function unwrapVaultBundle(parsed) {
-  if (Array.isArray(parsed)) return { items: parsed, serverUrl: "", accessToken: null };
+  if (Array.isArray(parsed)) return { items: parsed, serverUrl: "" };
   return {
     items: parsed.items ?? [],
     serverUrl: parsed.serverUrl ?? "",
-    accessToken: parsed.accessToken ?? null,
   };
 }
 
 async function handleSetPin({ pin }) {
   if (!/^(\d{4}|\d{6})$/.test(pin || "")) return { ok: false, error: "PIN must be 4 or 6 digits" };
 
-  const session = await ext.storage.session.get(["locked", "items", "dek", "serverUrl", "accessToken"]);
+  const session = await ext.storage.session.get(["locked", "items", "dek", "serverUrl"]);
   if (session.locked) return { ok: false, error: "Unlock the vault before setting a PIN" };
 
   // Reuse the in-memory DEK if present (changing PIN), else mint a fresh one.
   const dekArr = session.dek ?? toArr(randomBytes(32));
   const dekKey = await importDek(dekArr);
 
+  // No accessToken in the bundle — see refreshVaultBlob.
   const bundle = {
     items: session.items ?? [],
     serverUrl: session.serverUrl ?? "",
-    accessToken: session.accessToken ?? null,
   };
   const vaultBlob = await aesEncrypt(dekKey, te.encode(JSON.stringify(bundle)));
 
@@ -511,13 +523,12 @@ async function handleUnlockPin({ pin }) {
     const blobBytes = await aesDecrypt(dekKey, local.vaultBlob.iv, local.vaultBlob.data);
     const bundle = unwrapVaultBundle(JSON.parse(td.decode(blobBytes)));
 
-    // Restore the full session so autofill, the "Open vault" link, and server
-    // sync resume without a fresh web-app push.
+    // Restore autofill items + the "Open vault" link. No accessToken at rest,
+    // so server sync / save-relay wait for the next web-app push.
     await ext.storage.session.set({
       locked: false,
       items: bundle.items,
       serverUrl: bundle.serverUrl,
-      accessToken: bundle.accessToken,
       dek: toArr(dek),
     });
     await ext.storage.local.set({ pinAttempts: 0 });

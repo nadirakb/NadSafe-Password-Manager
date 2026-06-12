@@ -86,9 +86,7 @@ export function ItemModal({ item, onClose, onSaved }: Props) {
           uris: encUrl ? [{ uri: encUrl, match: null }] : [],
         };
       } else if (type === "note") {
-        noteData = noteContent
-          ? { type: 0 }
-          : null;
+        noteData = { type: 0 };
       } else if (type === "card") {
         const [encCardName, encBrand, encNumber, encExp, encExpYear, encCode] = await Promise.all([
           cardName ? encryptField(cardName, userKey) : Promise.resolve(null),
@@ -108,17 +106,19 @@ export function ItemModal({ item, onClose, onSaved }: Props) {
         };
       }
 
-      const encNotes = (type === "note" && noteContent)
-        ? await encryptField(noteContent, userKey)
-        : null;
+      // Notes apply to every type — encrypting only for "note" would wipe the
+      // notes of a login/card/identity item on its next edit.
+      const encNotes = noteContent ? await encryptField(noteContent, userKey) : null;
 
       const payload = {
         type: TYPE_NUMBERS[type],
         name: encName,
         notes: encNotes,
         folderId: folderId || null,
-        organizationId: null,
-        collectionIds: [],
+        // Preserve org/collection membership on edit — resetting these would
+        // silently detach an org item into the personal vault.
+        organizationId: item?.organizationId ?? null,
+        collectionIds: item?.collectionIds ?? [],
         favorite,
         reprompt: 0,
         fields: [],

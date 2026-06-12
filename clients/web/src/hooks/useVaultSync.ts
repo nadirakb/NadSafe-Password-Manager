@@ -26,11 +26,19 @@ export async function decryptCipher(
     type: CIPHER_TYPE[cipher.type] ?? "login",
     name,
     folderId: cipher.folderId,
+    organizationId: cipher.organizationId,
     collectionIds: cipher.collectionIds,
     favorite: cipher.favorite,
     createdAt: cipher.creationDate,
     updatedAt: cipher.revisionDate,
   };
+
+  // Notes exist on every cipher type, not just secure notes — dropping them
+  // here would silently lose data on the next edit round-trip.
+  if (cipher.notes) {
+    const content = await decryptField(cipher.notes, userKey);
+    if (content) item.note = { content };
+  }
 
   if (cipher.type === 1 && cipher.login) {
     const [username, password, totp] = await Promise.all([
@@ -49,9 +57,8 @@ export async function decryptCipher(
     };
   }
 
-  if (cipher.type === 2) {
-    const content = await decryptField(cipher.notes, userKey);
-    item.note = { content: content ?? "" };
+  if (cipher.type === 2 && !item.note) {
+    item.note = { content: "" };
   }
 
   if (cipher.type === 3 && cipher.card) {
@@ -73,11 +80,7 @@ export async function decryptCipher(
     };
   }
 
-  // Identity (type 4): store as note content for now (full identity fields = §future)
-  if (cipher.type === 4 && cipher.notes) {
-    const content = await decryptField(cipher.notes, userKey);
-    item.note = { content: content ?? "" };
-  }
+  // Identity (type 4): notes already carried above (full identity fields = §future)
 
   return item;
 }
@@ -100,8 +103,9 @@ export function useVaultSync() {
       const client = getApiClient();
       const data = await sync(client);
 
-      // Vaultwarden 1.36 returns lowercase keys
-      const ciphers = data.ciphers ?? [];
+      // Vaultwarden 1.36 returns lowercase keys.
+      // Soft-deleted ciphers (trash) come back in /sync too — keep them out of the vault list.
+      const ciphers = (data.ciphers ?? []).filter((c) => !c.deletedDate);
       const BATCH = 20;
       const decrypted: VaultItem[] = [];
       for (let i = 0; i < ciphers.length; i += BATCH) {

@@ -40,8 +40,14 @@ fn hotp(secret: &[u8], counter: u64, digits: u32) -> u32 {
 }
 
 fn base32_decode(input: &str) -> Result<Vec<u8>, TotpError> {
-    // Strip padding and uppercase
-    let input = input.trim_end_matches('=').to_uppercase();
+    // Strip whitespace + padding, uppercase (issuers often format secrets in
+    // spaced groups: "jbsw y3dp ehpk 3pxp").
+    let input: String = input
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .trim_end_matches('=')
+        .to_uppercase();
     let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
     let mut bits: u32 = 0;
@@ -49,6 +55,11 @@ fn base32_decode(input: &str) -> Result<Vec<u8>, TotpError> {
     let mut output = Vec::new();
 
     for ch in input.chars() {
+        // Guard before the `as u8` cast: a non-ASCII char would otherwise be
+        // truncated and could alias a valid alphabet byte.
+        if !ch.is_ascii() {
+            return Err(TotpError::InvalidBase32);
+        }
         let val = alphabet
             .iter()
             .position(|&b| b == ch as u8)

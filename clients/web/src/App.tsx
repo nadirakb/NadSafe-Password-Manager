@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { getSessionUserKey } from "./stores/session";
+import { lockVault } from "./stores/lock";
 import { initExtensionSaveListener } from "./lib/extension-save";
 import { useTauriAutoLock } from "./hooks/useTauriAutoLock";
 import { useVaultTimeout } from "./hooks/useVaultTimeout";
@@ -31,7 +32,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { isAuthenticated, isLocked, lock } = useAuthStore();
+  const { isAuthenticated, isLocked } = useAuthStore();
 
   // Lock vault when Tauri desktop window regains focus after OS sleep/lock
   useTauriAutoLock();
@@ -42,7 +43,7 @@ export default function App() {
     // Listen for save requests relayed from the browser extension.
     initExtensionSaveListener();
     if (isAuthenticated && !isLocked && !getSessionUserKey()) {
-      lock();
+      lockVault();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 

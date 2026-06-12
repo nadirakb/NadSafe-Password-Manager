@@ -43,6 +43,7 @@ export function entropyToPhrase(entropy: Uint8Array): string {
 export function phraseToEntropy(phrase: string): Uint8Array {
   const hex = phrase.replace(/\s+/g, "");
   if (hex.length !== 64) throw new Error("Invalid recovery phrase length");
+  if (!/^[0-9a-fA-F]{64}$/.test(hex)) throw new Error("Recovery phrase must be hexadecimal");
   const bytes = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
     bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);

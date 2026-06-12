@@ -18,7 +18,8 @@ import { prelogin, loginWithPassword, getOrCreateDeviceId } from "../lib/api/aut
 import { getTokenKey } from "../lib/api/types";
 import { deriveLoginKeys, wrapUserKey } from "../lib/crypto/key-hierarchy";
 import { unwrapUserKeyWithRecovery } from "../lib/crypto/recovery";
-import { setSessionUserKey } from "../stores/session";
+import { decryptRsaPrivateKey } from "../lib/crypto/rsa";
+import { setSessionUserKey, setSessionRsaKey } from "../stores/session";
 import { changePassword } from "../lib/api/account";
 import { toB64 } from "../lib/crypto/utils";
 import type { KdfParams, Argon2idParams, Pbkdf2Params, SymKey } from "../lib/crypto/types";
@@ -50,6 +51,7 @@ export function RecoveryPage() {
   const [server, setServer] = useState(storedServerUrl || window.location.origin);
   const [email, setEmail] = useState("");
   const [groups, setGroups] = useState<string[]>(Array(NUM_GROUPS).fill(""));
+  const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [step, setStep] = useState<"phrase" | "newpass">("phrase");
@@ -104,6 +106,7 @@ export function RecoveryPage() {
 
     if (newPassword.length < 12) { setError("New password must be at least 12 characters"); return; }
     if (newPassword !== confirmPassword) { setError("Passwords do not match"); return; }
+    if (!oldPassword) { setError("Enter your current master password"); return; }
     if (!recoveredUserKey) { setError("Recovery key missing — restart recovery"); return; }
 
     setLoading(true);
@@ -114,21 +117,6 @@ export function RecoveryPage() {
       // Get KDF params for user's email
       const preloginRes = await prelogin(client, email);
       const kdfParams = serverKdfToParams(preloginRes);
-
-      // Derive OLD auth hash using old password — but we don't have it.
-      // Vaultwarden's changePassword requires the old hash.
-      // Workaround: use the recovery flow as "emergency access" —
-      // derive a dummy old hash by attempting login first.
-      // Since user lost the password, we need the Vaultwarden admin to reset,
-      // OR we accept that recovery phrase flow requires knowing old password for server auth.
-      //
-      // For self-hosted instances where user is also admin:
-      // They can reset via admin panel. The recovery phrase then re-decrypts the
-      // user key client-side which they can use after the admin reset.
-      //
-      // Full passwordless recovery requires a custom server endpoint.
-      // For now: derive new key material + wrap user key; prompt for old password
-      // is avoided by using the recovery key as auth material directly.
 
       // Derive new auth material
       const newKeys = await deriveLoginKeys(newPassword, email, kdfParams);
@@ -144,18 +132,13 @@ export function RecoveryPage() {
         macKey: newKeys.macKey,
       });
 
-      // We don't have old auth hash — try logging in with a dummy to get a valid token
-      // so we can call changePassword. If the user forgot the password entirely,
-      // they need admin reset + then can restore vault key client-side.
-      // This path is for users who remember the old password but lost 2FA / locked out.
-
-      // Attempt to get a new token via recovery-authenticated session:
-      // POST to /api/accounts/password requires auth; we need a valid token.
-      // Since recovery happened client-side, user must provide old password for server auth.
-      const [oldPasswordInput] = await promptOldPassword();
-      if (!oldPasswordInput) { setLoading(false); return; }
-
-      const oldKeys = await deriveLoginKeys(oldPasswordInput, email, kdfParams);
+      // Vaultwarden's password-change endpoint authenticates with the OLD auth
+      // hash, so this flow still needs the current password — it recovers the
+      // VAULT KEY (lost 2FA device, corrupted local state), not a forgotten
+      // password. Fully passwordless recovery needs a server-side endpoint that
+      // verifies a recovery proof; until then the server cannot authorize the
+      // change any other way.
+      const oldKeys = await deriveLoginKeys(oldPassword, email, kdfParams);
       const deviceId = getOrCreateDeviceId();
       const tokenRes = await loginWithPassword(client, email, oldKeys.authHash, deviceId);
       client.setToken(tokenRes.access_token);
@@ -174,6 +157,16 @@ export function RecoveryPage() {
       if (!encUserKey) throw new Error("Server did not return vault key");
       setSessionUserKey(recoveredUserKey);
 
+      // Restore the RSA private key so org operations work without a re-login.
+      const encPrivKey = newTokenRes.PrivateKey ?? newTokenRes.privateKey ?? null;
+      if (encPrivKey && encPrivKey.includes("|")) {
+        try {
+          setSessionRsaKey(await decryptRsaPrivateKey(encPrivKey, recoveredUserKey));
+        } catch {
+          // non-fatal — org operations fail gracefully
+        }
+      }
+
       const storedKdfParams =
         kdfParams.type === "argon2id"
           ? { mCost: (kdfParams as Argon2idParams).mCost,
@@ -187,7 +180,7 @@ export function RecoveryPage() {
         newTokenRes.access_token,
         newTokenRes.refresh_token ?? "",
         encUserKey,
-        null,
+        newTokenRes.PrivateKey ?? newTokenRes.privateKey ?? null,
       );
 
       navigate("/vault");
@@ -268,11 +261,24 @@ export function RecoveryPage() {
         {step === "newpass" && (
           <>
             <p className={styles.desc}>
-              Recovery phrase verified. Set a new master password and enter your current
-              (old) password so the server can authenticate the change.
+              Recovery phrase verified — your vault key has been restored on this device.
+              Enter your current master password (required by the server to authorize the
+              change) and choose a new one. If the current password is lost entirely, a
+              server admin must reset it first; your recovered vault key stays valid.
             </p>
 
             <form onSubmit={handleNewPasswordSubmit}>
+              <div className={styles.fieldRow}>
+                <label className={styles.fieldLabel}>Current master password</label>
+                <input
+                  className={styles.fieldInput}
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                />
+              </div>
               <div className={styles.fieldRow}>
                 <label className={styles.fieldLabel}>New master password</label>
                 <input
@@ -312,15 +318,4 @@ export function RecoveryPage() {
       </div>
     </div>
   );
-}
-
-/** Inline async prompt for old password — avoids a separate page/state. */
-async function promptOldPassword(): Promise<[string]> {
-  return new Promise((resolve) => {
-    const pw = window.prompt(
-      "Enter your current (old) master password to authenticate the server-side key change:\n" +
-      "(This is required by the server even during recovery — it will be the last time.)",
-    );
-    resolve([pw ?? ""]);
-  });
 }

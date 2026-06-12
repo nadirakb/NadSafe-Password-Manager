@@ -6,6 +6,7 @@ const item: VaultItem = {
   type: "login",
   name: "GitHub",
   folderId: null,
+  organizationId: null,
   collectionIds: [],
   favorite: false,
   createdAt: "2026-01-01T00:00:00Z",

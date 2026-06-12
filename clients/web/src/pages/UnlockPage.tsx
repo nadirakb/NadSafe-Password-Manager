@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import { useLogout } from "../hooks/useAuth";
 import { setSessionUserKey, setSessionRsaKey } from "../stores/session";
 import { initApiClient } from "../lib/api/client";
 import { refreshToken, getOrCreateDeviceId } from "../lib/api/auth";
@@ -15,7 +16,8 @@ import styles from "./Auth.module.css";
 
 export function UnlockPage() {
   const navigate = useNavigate();
-  const { user, serverUrl, refreshToken: storedRefreshToken, encryptedUserKey, encryptedPrivateKey, unlock, logout } = useAuthStore();
+  const { user, serverUrl, refreshToken: storedRefreshToken, encryptedUserKey, encryptedPrivateKey, unlock } = useAuthStore();
+  const doLogout = useLogout();
 
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -177,7 +179,7 @@ export function UnlockPage() {
         <p className={styles.footer}>
           <button
             style={{ color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", background: "none", border: "none", cursor: "pointer" }}
-            onClick={logout}
+            onClick={doLogout}
           >
             Sign out instead
           </button>

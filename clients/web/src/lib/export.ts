@@ -55,7 +55,7 @@ const TYPE_MAP: Record<string, 1 | 2 | 3 | 4> = {
 function itemToExport(item: VaultItem): BitwardenExportItem {
   const base: BitwardenExportItem = {
     id: item.id,
-    organizationId: null,
+    organizationId: item.organizationId,
     folderId: item.folderId,
     type: TYPE_MAP[item.type] ?? 1,
     name: item.name,
@@ -153,9 +153,20 @@ export function downloadCsv(csv: string, filename?: string): void {
   URL.revokeObjectURL(url);
 }
 
+/**
+ * Cells starting with = + - @ tab or CR execute as formulas when the file is
+ * opened in Excel/Sheets/LibreOffice (CSV injection). Guard by prepending a
+ * single quote — Excel's own "treat as text" marker. To make the guard
+ * reversible, values already shaped like `'*<danger>` get one MORE quote, and
+ * the NadSafe importer (parseGenericCsv) strips exactly one — so any original
+ * value round-trips byte-for-byte through our own export → import.
+ */
+const CSV_FORMULA_GUARD = /^'*[=+\-@\t\r]/;
+
 function csvEscape(val: string): string {
-  if (val.includes(",") || val.includes('"') || val.includes("\n")) {
-    return `"${val.replace(/"/g, '""')}"`;
+  const guarded = CSV_FORMULA_GUARD.test(val) ? `'${val}` : val;
+  if (guarded.includes(",") || guarded.includes('"') || guarded.includes("\n")) {
+    return `"${guarded.replace(/"/g, '""')}"`;
   }
-  return val;
+  return guarded;
 }

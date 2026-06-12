@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { NavLink } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import { useVaultStore } from "../stores/vault";
-import { clearSessionKey } from "../stores/session";
+import { lockVault } from "../stores/lock";
 import { useFolderActions } from "../hooks/useFolders";
 import { NadSafeLogo } from "./NadSafeLogo";
 import styles from "./Sidebar.module.css";
@@ -15,8 +15,8 @@ const NAV_ITEMS = [
 ];
 
 export function Sidebar() {
-  const { user, lock } = useAuthStore();
-  function handleLock() { lock(); clearSessionKey(); }
+  const { user } = useAuthStore();
+  const handleLock = lockVault;
 
   const { folders, collections, selectedFolderId, selectFolder, selectedCollectionId, selectCollection } = useVaultStore();
   const { doCreate, doDelete, doRename } = useFolderActions();

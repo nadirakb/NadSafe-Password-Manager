@@ -8,6 +8,7 @@ function loginItem(overrides: Partial<VaultItem> = {}): VaultItem {
     type: "login",
     name: "GitHub",
     folderId: null,
+    organizationId: null,
     collectionIds: [],
     favorite: false,
     createdAt: "2026-01-01T00:00:00Z",
@@ -116,5 +117,30 @@ describe("buildExportCsv", () => {
 
   it("header only when vault has no login items", () => {
     expect(buildExportCsv([])).toBe("name,username,password,totp,url,notes");
+  });
+
+  it("guards cells that would execute as spreadsheet formulas", () => {
+    const item = loginItem({
+      name: "=HYPERLINK(\"evil\")",
+      login: { username: "@user", password: "+pass", uris: ["-https://x.com"], totp: null },
+    });
+    const row = buildExportCsv([item]).split("\n")[1];
+    // Name contains quotes, so it lands inside a quoted cell — guard comes after the opening quote.
+    expect(row).toContain("\"'=HYPERLINK");
+    expect(row).toContain("'@user");
+    expect(row).toContain("'+pass");
+    expect(row).toContain("'-https://x.com");
+  });
+
+  it("formula guard round-trips through the NadSafe importer", async () => {
+    const { parseGenericCsv } = await import("./importers");
+    const original = loginItem({
+      name: "=cmd",
+      login: { username: "'@already-quoted", password: "+danger", uris: [], totp: null },
+    });
+    const items = parseGenericCsv(buildExportCsv([original]));
+    expect(items[0].name).toBe("=cmd");
+    expect(items[0].login?.username).toBe("'@already-quoted");
+    expect(items[0].login?.password).toBe("+danger");
   });
 });

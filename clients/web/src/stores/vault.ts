@@ -7,6 +7,7 @@ export interface VaultItem {
   type: ItemType;
   name: string;
   folderId: string | null;
+  organizationId: string | null;
   collectionIds: string[];
   favorite: boolean;
   createdAt: string;

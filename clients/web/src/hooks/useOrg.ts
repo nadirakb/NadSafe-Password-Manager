@@ -10,10 +10,6 @@ import {
   listOrgCollections,
   listOrgEvents,
   type OrgResponse,
-  type OrgMemberResponse,
-  type OrgGroupResponse,
-  type OrgCollectionResponse,
-  type OrgEventResponse,
 } from "../lib/api/orgs";
 import {
   encryptField,
@@ -152,8 +148,13 @@ export async function decryptOrgKey(encOrgKeyBase64: string): Promise<Uint8Array
   }
 }
 
-export function useOrgMembers(orgId: string) {
-  const [members, setMembers] = useState<OrgMemberResponse[]>([]);
+/** Shared list-loading state machine for the org sub-resources. */
+function useOrgList<T>(
+  orgId: string,
+  fetcher: (client: ReturnType<typeof getApiClient>, orgId: string) => Promise<T[]>,
+  errorLabel: string,
+) {
+  const [items, setItems] = useState<T[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -161,77 +162,35 @@ export function useOrgMembers(orgId: string) {
     setLoading(true);
     setError(null);
     try {
-      const data = await listOrgMembers(getApiClient(), orgId);
-      setMembers(data);
+      setItems(await fetcher(getApiClient(), orgId));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load members");
+      setError(err instanceof Error ? err.message : errorLabel);
     } finally {
       setLoading(false);
     }
+    // fetcher/errorLabel are module-level constants at every call site
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
-  return { members, loading, error, reload: load };
+  return { items, loading, error, reload: load };
+}
+
+export function useOrgMembers(orgId: string) {
+  const { items: members, ...rest } = useOrgList(orgId, listOrgMembers, "Failed to load members");
+  return { members, ...rest };
 }
 
 export function useOrgGroups(orgId: string) {
-  const [groups, setGroups] = useState<OrgGroupResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await listOrgGroups(getApiClient(), orgId);
-      setGroups(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load groups");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  return { groups, loading, error, reload: load };
+  const { items: groups, ...rest } = useOrgList(orgId, listOrgGroups, "Failed to load groups");
+  return { groups, ...rest };
 }
 
 export function useOrgCollections(orgId: string) {
-  const [collections, setCollections] = useState<OrgCollectionResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await listOrgCollections(getApiClient(), orgId);
-      setCollections(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load collections");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  return { collections, loading, error, reload: load };
+  const { items: collections, ...rest } = useOrgList(orgId, listOrgCollections, "Failed to load collections");
+  return { collections, ...rest };
 }
 
 export function useOrgEvents(orgId: string) {
-  const [events, setEvents] = useState<OrgEventResponse[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await listOrgEvents(getApiClient(), orgId);
-      setEvents(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load events");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  return { events, loading, error, reload: load };
+  const { items: events, ...rest } = useOrgList(orgId, listOrgEvents, "Failed to load events");
+  return { events, ...rest };
 }

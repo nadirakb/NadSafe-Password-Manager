@@ -35,6 +35,8 @@ interface AuthState {
   setServerUrl: (url: string) => void;
   /** Cache the account's RSA public key (base64 DER) for org key operations. */
   setPublicKey: (publicKey: string) => void;
+  /** Replace the stored wrapped user key (after a master-password change re-wraps it). */
+  setEncryptedUserKey: (encryptedUserKey: string) => void;
   login: (
     user: AuthUser,
     accessToken: string,
@@ -66,6 +68,8 @@ export const useAuthStore = create<AuthState>()(
 
       setPublicKey: (publicKey) =>
         set((s) => (s.user ? { user: { ...s.user, publicKey } } : {})),
+
+      setEncryptedUserKey: (encryptedUserKey) => set({ encryptedUserKey }),
 
       login: (user, accessToken, refreshToken, encryptedUserKey, encryptedPrivateKey) =>
         set({

@@ -1,5 +1,12 @@
 export function toB64(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes));
+  // Chunked to avoid "Maximum call stack size exceeded" on large payloads
+  // (String.fromCharCode spreads the whole array onto the call stack).
+  let bin = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
 }
 
 export function fromB64(s: string): Uint8Array {

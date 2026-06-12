@@ -80,8 +80,12 @@ window.postMessage({ source: "nadsafe-extension", type: "READY" }, window.locati
 // ─── Password generator ────────────────────────────────────────────────────────
 
 function ri(max) {
+  // Rejection sampling — plain modulo skews toward low indices.
+  const limit = Math.floor(0x100000000 / max) * max;
   const arr = new Uint32Array(1);
-  crypto.getRandomValues(arr);
+  do {
+    crypto.getRandomValues(arr);
+  } while (arr[0] >= limit);
   return arr[0] % max;
 }
 
@@ -164,6 +168,7 @@ function getIcon() {
   iconEl.title = "NadSafe";
   iconEl.addEventListener("mouseover", () => { iconEl.style.boxShadow = "0 2px 12px rgba(59,130,246,0.5)"; });
   iconEl.addEventListener("mouseout",  () => { iconEl.style.boxShadow = "0 2px 8px rgba(0,0,0,0.35)"; });
+  iconEl.addEventListener("click", onIconClick);
   document.documentElement.appendChild(iconEl);
   return iconEl;
 }
@@ -428,10 +433,15 @@ let matchCache = null;
 
 async function getMatches() {
   const url = location.href;
-  if (matchCache?.url === url) return matchCache.matches;
   try {
+    // Always re-check lock state, even on cache hit — otherwise plaintext
+    // matches cached before LOCK keep autofilling after the vault locked.
     const status = await ext.runtime.sendMessage({ type: "GET_STATUS" });
-    if (status?.locked) return [];
+    if (status?.locked) {
+      matchCache = null;
+      return [];
+    }
+    if (matchCache?.url === url) return matchCache.matches;
     const res = await ext.runtime.sendMessage({ type: "AUTOFILL_QUERY", url });
     const matches = res?.matches ?? [];
     matchCache = { url, matches };
@@ -479,8 +489,10 @@ function setupField(input) {
 }
 
 // ─── Icon click ───────────────────────────────────────────────────────────────
+// Attached lazily inside getIcon() so pages without credential fields never
+// get the icon element injected.
 
-getIcon().addEventListener("click", async (e) => {
+async function onIconClick(e) {
   e.preventDefault();
   e.stopPropagation();
   if (!activeField) return;
@@ -493,7 +505,7 @@ getIcon().addEventListener("click", async (e) => {
 
   if (type === "email") showEmailDropdown(activeField, matches);
   else if (type === "password") showPasswordDropdown(activeField, matches);
-});
+}
 
 // ─── Reposition on scroll / resize ───────────────────────────────────────────
 
@@ -813,10 +825,12 @@ document.addEventListener("keydown", (e) => {
 
 // SPA: button click inside a form-like container when no submit event fires
 document.addEventListener("click", (e) => {
+  if (!(e.target instanceof Element)) return;
   const btn = e.target.closest('button[type="submit"], input[type="submit"]');
   if (!btn) return;
   const form = btn.closest("form");
   if (form) return; // submit event will fire
+  if (dedupe(btn)) return; // double-click must not stash/offer twice
   // Formless submit button — scan surrounding container
   const root = btn.closest('[class*="form"], [class*="login"], [class*="auth"], section, main') ?? document.body;
   maybeSave(extractCreds(root));

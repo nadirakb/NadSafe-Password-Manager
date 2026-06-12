@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
-import { clearSessionKey, setSessionUserKey, setSessionRsaKey } from "../stores/session";
+import { setSessionUserKey, setSessionRsaKey } from "../stores/session";
+import { logoutAndClear } from "../stores/lock";
 import { initApiClient } from "../lib/api/client";
 import { prelogin, loginWithPassword, register, getOrCreateDeviceId, TwoFactorRequiredError } from "../lib/api/auth";
 import { getTokenKey } from "../lib/api/types";
@@ -74,8 +75,9 @@ export function useLogin() {
   // (Argon2id is expensive; no reason to re-run it for the 2FA retry)
   const pendingLogin = useRef<PendingLogin | null>(null);
 
+  /** Returns true when login fully succeeded (tokens stored, vault key unwrapped). */
   const doLogin = useCallback(
-    async (serverUrl: string, email: string, password: string, twoFactorToken?: string) => {
+    async (serverUrl: string, email: string, password: string, twoFactorToken?: string): Promise<boolean> => {
       setLoading(true);
       setError(null);
       try {
@@ -89,7 +91,11 @@ export function useLogin() {
         let macKey: Uint8Array;
         let kdfParams: KdfParams;
 
-        if (twoFactorToken && pendingLogin.current?.cleanUrl === cleanUrl) {
+        if (
+          twoFactorToken &&
+          pendingLogin.current?.cleanUrl === cleanUrl &&
+          pendingLogin.current.email === email
+        ) {
           ({ authHash, encKey, macKey, kdfParams } = pendingLogin.current);
         } else {
           const preloginRes = await prelogin(client, email);
@@ -106,7 +112,7 @@ export function useLogin() {
             // Cache key material; show TOTP input
             pendingLogin.current = { cleanUrl, email, authHash, encKey, macKey, kdfParams };
             setNeedsTwoFactor(true);
-            return;
+            return false;
           }
           throw err;
         }
@@ -151,8 +157,11 @@ export function useLogin() {
           // If org requires 2FA but the user logged in without 2FA prompt, they haven't set it up.
           setRequires2FASetup(needs2FA && !twoFactorToken);
         }).catch(() => null);
+
+        return true;
       } catch (err) {
         setError(err instanceof Error ? err.message : "Login failed");
+        return false;
       } finally {
         setLoading(false);
       }
@@ -256,11 +265,9 @@ export function useRegister() {
 }
 
 export function useLogout() {
-  const { logout } = useAuthStore();
   const navigate = useNavigate();
   return useCallback(() => {
-    clearSessionKey();
-    logout();
+    logoutAndClear();
     navigate("/login");
-  }, [logout, navigate]);
+  }, [navigate]);
 }

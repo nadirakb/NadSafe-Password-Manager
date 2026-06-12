@@ -35,10 +35,11 @@ export function detectFormat(content: string, filename: string): ImportFormat {
   if (lower.endsWith(".json")) {
     try {
       const parsed = JSON.parse(content);
+      // 1Password JSON (items carry a "trashed" flag) must be checked before
+      // the Bitwarden test — both shapes have an "items" array.
+      if (parsed.items?.[0]?.trashed !== undefined || "accounts" in parsed) return "1password";
       // Bitwarden export has "encrypted" field and "items" array
       if ("items" in parsed || "ciphers" in parsed || "encrypted" in parsed) return "bitwarden";
-      // 1Password has "accounts" or "items" at root with different shape
-      if (parsed.items?.[0]?.trashed !== undefined) return "1password";
     } catch { /* */ }
     return "bitwarden";
   }
@@ -56,16 +57,7 @@ export function detectFormat(content: string, filename: string): ImportFormat {
 // Format: url,username,password,totp,extra,name,grouping,fav
 
 export function parseLastPassCsv(csv: string): RawVaultItem[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) return [];
-  const headers = parseCsvRow(lines[0]).map((h) => h.toLowerCase().trim());
-
-  return lines.slice(1).flatMap((line) => {
-    if (!line.trim()) return [];
-    const cols = parseCsvRow(line);
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cols[i] ?? ""; });
-
+  return csvRecords(csv).flatMap((row) => {
     const isNote = row.url === "http://sn" || !row.url;
     if (isNote) {
       return [{
@@ -95,16 +87,7 @@ export function parseLastPassCsv(csv: string): RawVaultItem[] {
 // Format: Title, Username, Password, OTPAuth, URLs, ..., Notes
 
 export function parse1PasswordCsv(csv: string): RawVaultItem[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) return [];
-  const headers = parseCsvRow(lines[0]).map((h) => h.toLowerCase().trim());
-
-  return lines.slice(1).flatMap((line) => {
-    if (!line.trim()) return [];
-    const cols = parseCsvRow(line);
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cols[i] ?? ""; });
-
+  return csvRecords(csv).flatMap((row) => {
     const url = row["website"] || row["url"] || row["urls"] || "";
     return [{
       type: 1,
@@ -123,17 +106,19 @@ export function parse1PasswordCsv(csv: string): RawVaultItem[] {
 // ─── Generic CSV (NadSafe export format) ─────────────────────────────────────
 // Format: name,username,password,totp,url,notes
 
+// Inverse of the export-side formula-injection guard (see export.ts
+// csvEscape): the exporter prepends one quote to any cell matching
+// `'*<formula char>`, so stripping exactly one such quote restores the
+// original value. Applied only to NadSafe's own CSV format — foreign exports
+// (LastPass, 1Password) may contain legitimate leading apostrophes.
+function unescapeFormulaGuard(val: string): string {
+  return /^''*[=+\-@\t\r]/.test(val) ? val.slice(1) : val;
+}
+
 export function parseGenericCsv(csv: string): RawVaultItem[] {
-  const lines = csv.trim().split("\n");
-  if (lines.length < 2) return [];
-  const headers = parseCsvRow(lines[0]).map((h) => h.toLowerCase().trim());
-
-  return lines.slice(1).flatMap((line) => {
-    if (!line.trim()) return [];
-    const cols = parseCsvRow(line);
+  return csvRecords(csv).flatMap((rawRow) => {
     const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = cols[i] ?? ""; });
-
+    for (const [k, v] of Object.entries(rawRow)) row[k] = unescapeFormulaGuard(v);
     return [{
       type: 1,
       name: row["name"] || "Untitled",
@@ -197,31 +182,62 @@ function extractKeePassTotp(entry: Element): string | null {
   return null;
 }
 
-// ─── CSV parser (handles quoted fields) ──────────────────────────────────────
+// ─── CSV parser (handles quoted fields, CRLF, and newlines inside quotes) ────
 
-export function parseCsvRow(row: string): string[] {
-  const result: string[] = [];
-  let inQuotes = false;
+/**
+ * Parse a whole CSV document into rows of fields (RFC 4180).
+ * Quote handling must run over the full text — splitting on "\n" first would
+ * corrupt quoted fields that contain newlines (e.g. LastPass "extra" notes)
+ * and leave a trailing "\r" on every field of a CRLF-exported file.
+ */
+export function parseCsv(content: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
   let field = "";
+  let inQuotes = false;
 
-  for (let i = 0; i < row.length; i++) {
-    const ch = row[i];
+  const pushField = () => { row.push(field); field = ""; };
+  const pushRow = () => { pushField(); rows.push(row); row = []; };
+
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
     if (ch === '"') {
-      if (inQuotes && row[i + 1] === '"') {
+      if (inQuotes && content[i + 1] === '"') {
         field += '"';
         i++;
       } else {
         inQuotes = !inQuotes;
       }
     } else if (ch === "," && !inQuotes) {
-      result.push(field);
-      field = "";
+      pushField();
+    } else if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && content[i + 1] === "\n") i++;
+      pushRow();
     } else {
       field += ch;
     }
   }
-  result.push(field);
-  return result;
+  if (field !== "" || row.length > 0) pushRow();
+
+  // Drop fully-empty rows (blank lines between records)
+  return rows.filter((r) => r.some((f) => f.trim() !== ""));
+}
+
+/** Backwards-compatible single-row parse (no embedded newlines). */
+export function parseCsvRow(row: string): string[] {
+  return parseCsv(row)[0] ?? [""];
+}
+
+/** Parse a CSV document into header-keyed records (headers lowercased). */
+function csvRecords(csv: string): Array<Record<string, string>> {
+  const rows = parseCsv(csv);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((h) => h.toLowerCase().trim());
+  return rows.slice(1).map((cols) => {
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => { row[h] = cols[i] ?? ""; });
+    return row;
+  });
 }
 
 /** Parse any supported format into a unified RawVaultItem[]. */
@@ -237,6 +253,11 @@ export function parseImportFile(content: string, filename: string): {
       items = parseLastPassCsv(content);
       break;
     case "1password":
+      // Only the CSV export is supported — running the CSV parser over a JSON
+      // body would import garbage rows instead of failing loudly.
+      if (filename.toLowerCase().endsWith(".json")) {
+        throw new Error("1Password JSON exports are not supported — export as CSV instead");
+      }
       items = parse1PasswordCsv(content);
       break;
     case "keepass":

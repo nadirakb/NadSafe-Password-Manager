@@ -81,3 +81,10 @@ describe("wipe", () => {
     expect(bytes).toEqual(new Uint8Array(4));
   });
 });
+
+describe("toB64 large input", () => {
+  it("encodes a 1 MiB array without blowing the call stack", () => {
+    const big = new Uint8Array(1024 * 1024).fill(0xab);
+    expect(fromB64(toB64(big))).toEqual(big);
+  });
+});

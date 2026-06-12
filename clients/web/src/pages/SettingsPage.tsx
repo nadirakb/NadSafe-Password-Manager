@@ -66,7 +66,7 @@ function VaultTimeoutSection() {
 // ─── Change Master Password ───────────────────────────────────────────────────
 
 function ChangeMasterPassword() {
-  const { user, encryptedUserKey } = useAuthStore();
+  const { user, encryptedUserKey, setEncryptedUserKey } = useAuthStore();
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
@@ -108,6 +108,11 @@ function ChangeMasterPassword() {
         newMasterPasswordHash: toB64(newHash),
         key: newEncryptedUserKey,
       });
+
+      // Persist the re-wrapped key locally — the unlock flow unwraps the
+      // stored copy, so leaving the old one would reject the new password
+      // ("MAC mismatch") on the next lock/unlock until a full re-login.
+      setEncryptedUserKey(newEncryptedUserKey);
 
       setSuccess(true);
       setCurrentPw("");

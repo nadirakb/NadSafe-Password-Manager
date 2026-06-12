@@ -19,11 +19,9 @@ describe("detectFormat", () => {
     expect(detectFormat('{"encrypted":false,"items":[]}', "export.json")).toBe("bitwarden");
   });
 
-  it("classifies JSON with an items array as bitwarden (even 1Password-shaped)", () => {
-    // Note: the 1Password branch in detectFormat is unreachable — the
-    // bitwarden check ('"items" in parsed') runs first and matches any JSON
-    // that has an items array. This test documents the current behavior.
-    expect(detectFormat('{"items":[{"trashed":false}]}', "1p.json")).toBe("bitwarden");
+  it("detects 1Password-shaped JSON before the bitwarden items check", () => {
+    expect(detectFormat('{"items":[{"trashed":false}]}', "1p.json")).toBe("1password");
+    expect(detectFormat('{"accounts":[]}', "1p.json")).toBe("1password");
   });
 
   it("falls back to bitwarden for unparseable JSON", () => {
@@ -209,5 +207,60 @@ describe("parseImportFile", () => {
     const { format, items } = parseImportFile('{"encrypted":false,"items":[]}', "bw.json");
     expect(format).toBe("bitwarden");
     expect(items).toEqual([]);
+  });
+});
+
+describe("CSV edge cases (CRLF + multiline quoted fields)", () => {
+  it("does not leave \\r on fields of CRLF-exported files", () => {
+    const csv = "name,username,password\r\nGitHub,octocat,hunter2\r\n";
+    const items = parseGenericCsv(csv);
+    expect(items).toHaveLength(1);
+    expect(items[0].login?.password).toBe("hunter2");
+    expect(items[0].login?.username).toBe("octocat");
+  });
+
+  it("keeps newlines inside quoted fields (LastPass extra notes)", () => {
+    const csv =
+      'url,username,password,totp,extra,name,grouping,fav\n' +
+      'https://a.com,u,p,,"line1\nline2",A,,0\n' +
+      'https://b.com,v,q,,,B,,0';
+    const items = parseLastPassCsv(csv);
+    expect(items).toHaveLength(2);
+    expect(items[0].notes).toBe("line1\nline2");
+    expect(items[1].name).toBe("B");
+  });
+
+  it("handles quoted fields containing CRLF and commas together", () => {
+    const csv = 'name,username,password,totp,url,notes\r\nA,u,p,,,"hello,\r\nworld"\r\n';
+    const items = parseGenericCsv(csv);
+    expect(items).toHaveLength(1);
+    expect(items[0].notes).toBe("hello,\r\nworld");
+  });
+
+  it("skips blank lines between records", () => {
+    const csv = "name,username,password\nA,u,p\n\n\nB,v,q\n";
+    expect(parseGenericCsv(csv)).toHaveLength(2);
+  });
+});
+
+describe("1Password JSON guard", () => {
+  it("throws a clear error instead of mis-parsing JSON as CSV", () => {
+    expect(() => parseImportFile('{"items":[{"trashed":false}]}', "1p.json"))
+      .toThrow(/JSON exports are not supported/);
+  });
+});
+
+describe("formula-injection guard unescape (NadSafe CSV round-trip)", () => {
+  it("strips the guard quote the exporter added", () => {
+    const csv = 'name,username,password,totp,url,notes\nA,u,"\'=HYPERLINK(""evil"")",,,';
+    const items = parseGenericCsv(csv);
+    expect(items[0].login?.password).toBe('=HYPERLINK("evil")');
+  });
+
+  it("leaves genuine leading apostrophes alone", () => {
+    const csv = "name,username,password\n'tis,a,'pass";
+    const items = parseGenericCsv(csv);
+    expect(items[0].name).toBe("'tis");
+    expect(items[0].login?.password).toBe("'pass");
   });
 });

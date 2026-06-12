@@ -1,7 +1,7 @@
 //! Password and passphrase generator.
 
 use rand::seq::SliceRandom;
-use rand::RngCore;
+use rand::Rng;
 
 const UPPERCASE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const LOWERCASE: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
@@ -125,9 +125,8 @@ fn filter_ambiguous(pool: &[u8], avoid: bool) -> Vec<u8> {
 }
 
 fn random_usize(rng: &mut rand::rngs::ThreadRng, max: usize) -> usize {
-    let mut buf = [0u8; 4];
-    rng.fill_bytes(&mut buf);
-    (u32::from_le_bytes(buf) as usize) % max
+    // gen_range is uniform — a plain `u32 % max` skews toward low indices.
+    rng.gen_range(0..max)
 }
 
 #[cfg(target_arch = "wasm32")]

@@ -4,26 +4,8 @@ import { useVaultSync } from "../hooks/useVaultSync";
 import { TotpDisplay } from "../components/TotpDisplay";
 import { ItemModal } from "../components/ItemModal";
 import { useAuthStore } from "../stores/auth";
-import { clearSessionKey } from "../stores/session";
+import { lockVault } from "../stores/lock";
 import styles from "./VaultPage.module.css";
-
-const MOCK_ITEMS: VaultItem[] = [
-  {
-    id: "1", type: "login", name: "GitHub", folderId: null, collectionIds: [],
-    favorite: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    login: { username: "nadir@example.com", password: "hunter2!", uris: ["https://github.com"], totp: null },
-  },
-  {
-    id: "2", type: "login", name: "Booking Platform", folderId: null, collectionIds: ["col-booking"],
-    favorite: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    login: { username: "admin@caletahomes.com", password: "Str0ngP@ss!", uris: ["https://extranet.booking.com"], totp: "JBSWY3DPEHPK3PXP" },
-  },
-  {
-    id: "3", type: "note", name: "Server SSH Keys", folderId: null, collectionIds: ["col-infra"],
-    favorite: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    note: { content: "Production keys stored in 1Password migration doc.\nDev keys in ~/.ssh/nadsafe_dev_rsa" },
-  },
-];
 
 const TYPE_ICONS: Record<ItemType, string> = {
   login: "🔑", note: "📝", card: "💳", identity: "👤",
@@ -36,7 +18,7 @@ function ItemRow({ item, selected, onClick }: { item: VaultItem; selected: boole
       <div className={styles.itemMeta}>
         <span className={styles.itemName}>{item.name}</span>
         {item.login?.username && <span className={styles.itemSub}>{item.login.username}</span>}
-        {item.note && <span className={styles.itemSub}>Secure note</span>}
+        {item.type === "note" && <span className={styles.itemSub}>Secure note</span>}
         {item.card && <span className={styles.itemSub}>{item.card.brand || "Card"} ···· {item.card.number?.slice(-4) || "····"}</span>}
         {item.type === "identity" && <span className={styles.itemSub}>Identity</span>}
       </div>
@@ -322,7 +304,7 @@ export function VaultPage() {
     selectedFolderId, selectedCollectionId, folders, collections,
   } = useVaultStore();
   const { doSync, error: syncError } = useVaultSync();
-  const { lock, requires2FASetup, serverUrl } = useAuthStore();
+  const { requires2FASetup, serverUrl } = useAuthStore();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -336,8 +318,7 @@ export function VaultPage() {
     // Ctrl+L — lock vault
     if ((e.ctrlKey || e.metaKey) && e.key === "l") {
       e.preventDefault();
-      clearSessionKey();
-      lock();
+      lockVault();
       return;
     }
     // Ctrl+K — focus search
@@ -352,15 +333,14 @@ export function VaultPage() {
       if (showAddModal) { setShowAddModal(false); return; }
       if (showEditModal) { setShowEditModal(false); return; }
     }
-  }, [lock, showAddModal, showEditModal]);
+  }, [showAddModal, showEditModal]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  // Show mocks only before first sync (UI preview). After sync: show real items or empty.
-  const allItems = storeItems.length > 0 ? storeItems : lastSynced !== null ? [] : MOCK_ITEMS;
+  const allItems = storeItems;
 
   // Filter by folder/collection/search
   const filtered = allItems.filter((i) => {

@@ -55,8 +55,10 @@ export function LoginPage() {
     e.preventDefault();
     if (secsLeft > 0) return;
     prevErrorRef.current = null;
-    await doLogin(server, email, password, needsTwoFactor ? totpToken : undefined);
-    if (!error) { clearRLState(server, email); setLockedUntil(0); }
+    // Use the returned result, not the `error` state — that closure value is
+    // from the render this submit started in, so it can't reflect this attempt.
+    const ok = await doLogin(server, email, password, needsTwoFactor ? totpToken : undefined);
+    if (ok) { clearRLState(server, email); setLockedUntil(0); }
   }
 
   return (

@@ -7,11 +7,8 @@
 
 import { argon2id } from "hash-wasm";
 import { toUtf8 } from "./utils";
+import { isTauri } from "../platform";
 import type { KdfParams } from "./types";
-
-function isTauri(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
 
 /**
  * Derive the 32-byte master key from master password and email.
