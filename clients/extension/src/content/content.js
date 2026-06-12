@@ -708,10 +708,9 @@ function showSaveNotification(hostname, username, password) {
       }
     } catch (err) {
       const msg = err?.message || "Save failed";
-      addBtn.textContent = "Failed";
-      addBtn.style.background = "#dc2626";
-      addBtn.style.borderColor = "#dc2626";
-      addBtn.title = msg;
+      // A locked vault or an unpaired/closed web-app tab can't encrypt the
+      // credential. Every such error string mentions "locked" or "NadSafe".
+      const needsUnlock = /vault locked|nadsafe|push to extension/i.test(msg);
 
       let errLine = card.querySelector("[data-nadsafe-err]");
       if (!errLine) {
@@ -720,6 +719,41 @@ function showSaveNotification(hostname, username, password) {
         errLine.style.cssText = "padding:0 14px 10px;font-size:11px;color:#fca5a5;line-height:1.4;";
         card.appendChild(errLine);
       }
+
+      if (needsUnlock) {
+        // Don't dead-end on a red "Failed". Guide the user to unlock: opening
+        // the web app auto-pushes the vault, which re-arms the extension; they
+        // then click Add again. Cancel the 20s auto-dismiss so the round-trip
+        // to unlock isn't cut short.
+        clearTimeout(autoDismiss);
+        errLine.style.color = "#fcd34d";
+        errLine.textContent = "Vault locked — open NadSafe to unlock, then click Add again.";
+
+        addBtn.textContent = "Add";
+        addBtn.disabled = false;
+        addBtn.style.background = "#3b82f6";
+        addBtn.style.borderColor = "#3b82f6";
+
+        if (!card.querySelector("[data-nadsafe-unlock]")) {
+          const openBtn = document.createElement("button");
+          openBtn.type = "button";
+          openBtn.setAttribute("data-nadsafe-unlock", "1");
+          openBtn.textContent = "Open NadSafe to unlock";
+          openBtn.style.cssText = "display:block;margin:0 14px 12px;width:calc(100% - 28px);padding:8px 0;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #334155;background:#0f1d2e;color:#93c5fd;";
+          openBtn.addEventListener("mouseover", () => { openBtn.style.opacity = "0.85"; });
+          openBtn.addEventListener("mouseout",  () => { openBtn.style.opacity = "1"; });
+          openBtn.addEventListener("click", () => {
+            try { ext.runtime.sendMessage({ type: "OPEN_WEBAPP" })?.catch?.(() => {}); } catch { /* no-op */ }
+          });
+          card.appendChild(openBtn);
+        }
+        return;
+      }
+
+      addBtn.textContent = "Failed";
+      addBtn.style.background = "#dc2626";
+      addBtn.style.borderColor = "#dc2626";
+      addBtn.title = msg;
       errLine.textContent = msg;
 
       setTimeout(() => {
