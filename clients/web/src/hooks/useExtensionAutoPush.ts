@@ -20,6 +20,26 @@ import { getSessionUserKey } from "../stores/session";
 import { pushItemsToExtension, pushSessionToExtension } from "../lib/extension-bridge";
 import { symKeyToBytes, toB64 } from "../lib/crypto";
 
+/**
+ * Backend URL the extension should fetch directly. Its service worker can't use
+ * the web app's dev proxy, so resolve the real API origin:
+ *   - an explicit non-same-origin serverUrl the user logged in with wins
+ *     (deployed server, or a backend typed into the login form);
+ *   - in dev, the proxied backend (VITE_SERVER_URL, or its :8000 default) so the
+ *     extension hits the API directly and keeps working with the :5173 dev
+ *     server down;
+ *   - in prod, the page origin (app + API are same-origin).
+ * MV3 host_permissions let the worker fetch these cross-origin without CORS.
+ */
+function resolveBackendUrl(authServerUrl: string): string {
+  const origin = window.location.origin;
+  if (authServerUrl && authServerUrl !== origin) return authServerUrl;
+  const devBackend =
+    (import.meta.env.VITE_SERVER_URL as string | undefined) ||
+    (import.meta.env.DEV ? "http://localhost:8000" : undefined);
+  return devBackend || origin;
+}
+
 export function useExtensionAutoPush(): void {
   const items = useVaultStore((s) => s.items);
   const lastSynced = useVaultStore((s) => s.lastSynced);
@@ -30,14 +50,14 @@ export function useExtensionAutoPush(): void {
     if (!userKey) return; // vault locked — nothing to share
 
     // Hand the extension the session so it can pull/decrypt/save standalone.
-    // serverUrl falls back to this origin (same-origin/dev proxy) since the
-    // extension's service worker can't resolve an empty base.
+    // Push the real backend URL (not the dev-proxy origin) so the extension's
+    // service worker reaches the API directly — see resolveBackendUrl.
     const auth = useAuthStore.getState();
     if (auth.accessToken) {
       void pushSessionToExtension({
         userKey: toB64(symKeyToBytes(userKey)),
         accessToken: auth.accessToken,
-        serverUrl: auth.serverUrl || window.location.origin,
+        serverUrl: resolveBackendUrl(auth.serverUrl),
         email: auth.user?.email,
       });
     }
